@@ -708,11 +708,11 @@ public:
      */
     int run(bool=false) {
         ff_gatherer::dryrun();
-        
         if (this->spawn(filter?filter->getCPUId():-1)== -2) {
             error("GT, spawning GT thread\n");
             return -1; 
         }
+        fprintf(stderr, "Thread %d, %s: %d\n", gettid(), __FILE__, __LINE__);
         return 0;
     }
 

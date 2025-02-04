@@ -236,6 +236,7 @@ protected:
     
     void thread_routine() {
         threadid = ff_getThreadID();
+        fprintf(stderr, "Created thread %ld, %s: %d\n", threadid, __FILE__, __LINE__);
 #if defined(FF_INITIAL_BARRIER)
         if (barrier) {
             barrier->doBarrier(tid);
@@ -360,6 +361,7 @@ public:
             barrier?--internal_threadCounter:--internal_threadCounter_noBarrier;
             return -2;
         }
+        //fprintf(stderr, "Thread %ld, %s: %d\n", th_handle, __FILE__, __LINE__);
         spawned = true;
         return CPUId;
     }
