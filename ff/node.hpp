@@ -47,6 +47,10 @@
 #include <ff/svector.hpp>
 #include <ff/barrier.hpp>
 #include <atomic>
+/* Added to print sched_attr */
+#include <sched.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #ifdef DFF_ENABLED
 
@@ -58,6 +62,17 @@
 
 #endif
 
+/* Necessary declaration of this struct. Otherwise, a compilation error is thrown. */
+struct sched_attr {
+    uint32_t size;
+    uint32_t sched_policy;
+    uint64_t sched_flags;
+    uint32_t sched_nice;
+    uint32_t sched_priority;
+    uint64_t sched_runtime;
+    uint64_t sched_deadline;
+    uint64_t sched_period;
+};
 
 namespace ff {
 
@@ -233,9 +248,11 @@ protected:
     }
 
     virtual ~ff_thread() {}
-    
+
     void thread_routine() {
         threadid = ff_getThreadID();
+        fprintf(stdout, "Created thread %ld, %s: %d\n", threadid, __FILE__, __LINE__);
+        print_thread_attributes();
 #if defined(FF_INITIAL_BARRIER)
         if (barrier) {
             barrier->doBarrier(tid);
@@ -311,6 +328,18 @@ protected:
         return 0;
     }
 
+    /** Function used to print on stdout the attributes of the calling thread. */
+    void print_thread_attributes() {
+        struct sched_attr printable;
+        int result = 0;
+
+        if ((result = syscall(SYS_sched_getattr, 0, ((struct sched_attr *)&printable), sizeof(struct sched_attr), 0)) != 0) {
+            perror("print_thread_attributes");
+        }
+
+        fprintf(stdout, "Thread %ld: {size: %u, policy: %u (0 for SCHED_OTHER), flags: %lu, nice: %u, priority: %u}\n", threadid, 
+            printable.size, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority);
+    }
 
 #if defined(FF_TASK_CALLBACK)
     virtual void callbackIn(void  * =NULL) { }

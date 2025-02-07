@@ -194,6 +194,13 @@ auto-save-list
 tramp
 .\#*
 
+### VSCode ###
+
+.vscode
+.vscode/*
+# The following is the test executable used for tries
+test1
+
 # Org-mode
 .org-id-locations
 *_archive
