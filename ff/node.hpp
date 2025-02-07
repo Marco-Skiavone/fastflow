@@ -333,13 +333,11 @@ protected:
         struct sched_attr printable;
         int result = 0;
 
-        if ((result = syscall(SYS_sched_getattr, 0, ((struct sched_attr *)&printable), sizeof(printable), 0)) != 0) {
+        if ((result = syscall(SYS_sched_getattr, 0, ((struct sched_attr *)&printable), sizeof(struct sched_attr), 0)) != 0) {
             perror("print_thread_attributes");
-            //fprintf(stdout, "type of printable: %s\n",);
-            fprintf(stdout, "Error: %d\n", result);
         }
 
-        fprintf(stdout, "Thread %ld: {size: %u, policy: %u, flags: %lu, nice: %u, priority: %u}\n", threadid, 
+        fprintf(stdout, "Thread %ld: {size: %u, policy: %u (0 for SCHED_OTHER), flags: %lu, nice: %u, priority: %u}\n", threadid, 
             printable.size, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority);
     }
 
