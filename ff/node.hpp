@@ -389,7 +389,6 @@ public:
             barrier?--internal_threadCounter:--internal_threadCounter_noBarrier;
             return -2;
         }
-        //fprintf(stderr, "Thread %ld, %s: %d\n", th_handle, __FILE__, __LINE__);
         spawned = true;
         return CPUId;
     }
