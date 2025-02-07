@@ -238,6 +238,7 @@ protected:
 
     virtual ~ff_thread() {}
 
+    /* Necessary declaration of this struct. Otherwise, a compilation error is thrown. */
     struct sched_attr {
         uint32_t size;
         uint32_t sched_policy;
