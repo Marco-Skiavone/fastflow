@@ -62,6 +62,17 @@
 
 #endif
 
+/* Necessary declaration of this struct. Otherwise, a compilation error is thrown. */
+struct sched_attr {
+    uint32_t size;
+    uint32_t sched_policy;
+    uint64_t sched_flags;
+    uint32_t sched_nice;
+    uint32_t sched_priority;
+    uint64_t sched_runtime;
+    uint64_t sched_deadline;
+    uint64_t sched_period;
+};
 
 namespace ff {
 
@@ -237,18 +248,6 @@ protected:
     }
 
     virtual ~ff_thread() {}
-
-    /* Necessary declaration of this struct. Otherwise, a compilation error is thrown. */
-    struct sched_attr {
-        uint32_t size;
-        uint32_t sched_policy;
-        uint64_t sched_flags;
-        uint32_t sched_nice;
-        uint32_t sched_priority;
-        uint64_t sched_runtime;
-        uint64_t sched_deadline;
-        uint64_t sched_period;
-    };
 
     void thread_routine() {
         threadid = ff_getThreadID();
