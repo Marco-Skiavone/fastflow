@@ -366,7 +366,7 @@ protected:
      *
      * It pops the task from buffer.
      *
-     * \parm task is a void pointer
+     * \param task is a void pointer
      *
      * \return \p true if successful
      */

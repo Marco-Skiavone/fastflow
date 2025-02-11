@@ -26,8 +26,9 @@ int print_thread_attributes(size_t thread_id) {
         return result;
     }
 
-    fprintf(stdout, "Thread %ld: {size: %u, policy: %u (0 for SCHED_OTHER), flags: %llu, nice: %u, priority: %u}\n", thread_id, 
-        printable.size, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority);
+    std::cout << "Thread " << thread_id << ": {size: " << printable.size << ", policy: " << printable.sched_policy << 
+            " (0 for SCHED_OTHER), flags: " << printable.sched_flags << ", nice: " << printable.sched_nice << ", priority: "
+             << printable.sched_priority << "}\n";
     return result;
 }
 
