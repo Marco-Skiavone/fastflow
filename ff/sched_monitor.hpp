@@ -1,6 +1,5 @@
-#include <sched.h>
-#include <sys/syscall.h>
-#include <unistd.h>
+#ifndef _SCHED_MONITORING_H
+#define _SCHED_MONITORING_H 1
 
 /** It seems that for the systems using:
  * - Ubuntu 24.04.1 
@@ -9,10 +8,11 @@
  * Credits to: https://github.com/torvalds/linux/blob/master/include/linux/sched.h */
 #include <linux/sched/types.h>
 
-#ifndef _SCHED_MONITORING_H
-#define _SCHED_MONITORING_H 1
+#include <sched.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
-/** Function used to print on stdout the attributes of the calling thread. 
+/** Function used to print on `stderr` the attributes of the calling thread. 
  * @param thread_id The TID of the calling thread. Usually stored in ff/node.hpp
  * @returns 0 - Success\\
  * @returns Otherwise - The error returned by the system call.
@@ -26,9 +26,8 @@ int print_thread_attributes(size_t thread_id) {
         return result;
     }
 
-    std::cout << "Thread " << thread_id << ": {size: " << printable.size << ", policy: " << printable.sched_policy << 
-            " (0 for SCHED_OTHER), flags: " << printable.sched_flags << ", nice: " << printable.sched_nice << ", priority: "
-             << printable.sched_priority << "}\n";
+    fprintf(stderr, "Thread %ld: {size: %u, policy: %u (0 for SCHED_OTHER), flags: %llu, nice: %u, priority: %u}\n", thread_id, 
+        printable.size, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority);
     return result;
 }
 
