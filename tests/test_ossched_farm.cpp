@@ -53,18 +53,26 @@ struct Sink: ff_node_t<long> {
 	}
 };
 
-void manager(ff_pipeline& pipe) {
-	
+void manager(ff_farm& farm) {
 	bar.arrive_and_wait();
 	std::printf("manager started\n");
 
 	
-	const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
+    /** NOTE: cannot add the emitter, because `in[0]->get_out_buffer()` is `nil`! */
+	svector<ff_node*> nodes = farm.getWorkers();
+    // nodes.insert(nodes.begin(), farm.getEmitter());
+    // nodes.insert(nodes.end(), farm.getCollector());
 
+    std::printf("0.\n");
 	while(!managerstop) {
-		for(size_t i = 0; i < (nodes.size() - 1); ++i) {		
+		for(size_t i = 0; i < nodes.size(); ++i) {		
 			svector<ff_node*> in;		
 			nodes[i]->get_out_nodes(in);
+
+            /*std::printf("p: %p\n", in[0]->get_out_buffer());
+            if (!in[0]->get_out_buffer())
+                std::printf("nil found at i: %ld\n", i);*/
+
 			std::printf("node%ld qlen=%ld\n", i + 1, in[0]->get_out_buffer()->length());
 		}
 		std::printf("-------\n");
@@ -90,25 +98,25 @@ int main(int argc, char* argv[]) {
     Source first(ntasks);
     Sink   last;
 
-	ff_pipeline pipe;
-	pipe.add_stage(&first);
-	for(size_t i = 1; i <= nnodes; ++i)
-		pipe.add_stage(new Stage(2000 * i), true);
-	pipe.add_stage(&last);
+    ff_farm farm(false, ntasks, ntasks, false, nnodes + 2, true);
+    farm.add_emitter(&first);
 
-	// setta tutte le code a bounded di capacità 10
-	// pipe.setXNodeInputQueueLength(10, true);
-	
+    std::vector<ff_node *> w;
+    for(size_t i = 0; i < nnodes; ++i) 
+        w.push_back(new Stage(2000 * i));
+    farm.add_workers(w); // add all workers to the farm
+
+    farm.add_collector(&last);
+
 	// lancio il thread manager
-	std::thread th(manager, std::ref(pipe));
-	
-	// eseguo la pipe
-    if (pipe.run_and_wait_end() < 0) {
-        error("running pipeline\n");
+	std::thread th(manager, std::ref(farm));
+    
+    if (farm.run_and_wait_end() < 0) {
+        error("running farm\n");
         return -1;
-    }	
-
-	std::printf("pipe done\n");	
+    }
+    std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
+	
 	th.join();	// it should make the main thread to wait for th termination (I think)
 	std::printf("manager done\n");
 	return 0;

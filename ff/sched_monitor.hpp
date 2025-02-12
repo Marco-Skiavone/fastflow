@@ -31,4 +31,18 @@ int print_thread_attributes(size_t thread_id) {
     return result;
 }
 
+
+/** Function used to SET the attributes of the current thread, using a `sched_attr` structure. 
+ * @param attr is a pointer to the structure of `sched_attr` type, which will contain all attributes required for the scheduling.
+ * @returns 0 - Success\\
+ * @returns Otherwise - The error returned by the system call.
+ */
+int set_scheduling_out(struct sched_attr * attr) {
+    int result = 0;
+    if ((result = syscall(SYS_sched_setattr, 0, (struct sched_attr *)attr, sizeof(struct sched_attr), 0)) != 0)
+        perror("set_scheduling_out");
+    
+    return result;
+}
+
 #endif
