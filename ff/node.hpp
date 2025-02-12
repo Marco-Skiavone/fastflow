@@ -238,7 +238,7 @@ protected:
 
     void thread_routine() {
         threadid = ff_getThreadID();
-        fprintf(stdout, "Created thread %ld, %s: %d\n", threadid, __FILE__, __LINE__);
+        /* fprintf(stderr, "Created thread %ld, %s: %d\n", threadid, __FILE__, __LINE__); DEBUG */
         print_thread_attributes(threadid);
 #if defined(FF_INITIAL_BARRIER)
         if (barrier) {
