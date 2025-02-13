@@ -14,21 +14,15 @@ std::atomic_bool managerstop{false};
 
 struct Source: ff_node_t<long> {
     Source(const int ntasks, struct sched_attr * attrs):ntasks(ntasks) {
-        attr = attrs;
+        // setting attributes for scheduling policy
+        if (set_scheduling_out(attrs, ff_getThreadID()) < 0) {
+            fprintf(stderr, "Thread %ld failed setting DEADLINE: %s\n", ff_getThreadID(), strerrorname_np(errno));
+        }
+        print_thread_attributes(ff_getThreadID());
     }
 
 	int svc_init() {
-		bar.arrive_and_wait();
-        // setting scheduling 
-
-        fprintf(stderr, "DEB: {size: %u, policy: %u (0 for SCHED_OTHER), flags: %llu, nice: %u, priority: %u, deadline: %llu, period: %llu, runtime: %lld}\n", 
-            attr->size, attr->sched_policy, attr->sched_flags, attr->sched_nice, attr->sched_priority, 
-            attr->sched_deadline, attr->sched_period, attr->sched_runtime);
-
-        if (set_scheduling_out(attr) < 0) {
-            perror("sett_scheduling_out failed");
-        }
-        print_thread_attributes(ff_getThreadID());
+		bar.arrive_and_wait();        
 		return 0;
 	}
 	long* svc(long*) {
@@ -40,7 +34,6 @@ struct Source: ff_node_t<long> {
         return EOS;
     }
     const int ntasks;
-    struct sched_attr * attr;
 };
 struct Stage: ff_node_t<long> {
 	Stage(long workload):workload(workload) {}
@@ -87,17 +80,15 @@ int main(int argc, char* argv[]) {
     size_t ntasks = 10000;
     size_t nnodes = 2;
 
-    struct sched_attr * attr = (struct sched_attr *) malloc(sizeof(struct sched_attr));
-    attr->size = sizeof(struct sched_attr);
-    attr->sched_nice = 0;
-    attr->sched_priority = 0;
-    attr->sched_util_max = 0;
-    attr->sched_flags = 0;
-    attr->sched_policy = SCHED_DEADLINE;
-    attr->sched_period = 10000;
-    attr->sched_deadline = 10000;
-    attr->sched_runtime = 5000; // trying half the size of period and deadline
-
+    // setting the default values for the sched_attr to be set with SCHED_DEADLINE
+    struct sched_attr attr = {0};
+    attr.size = sizeof(struct sched_attr);
+    attr.sched_flags = 0;
+    attr.sched_policy = SCHED_DEADLINE;
+    attr.sched_runtime = 5000; // trying half the size of period and deadline
+    attr.sched_deadline = 10000;
+    attr.sched_period = 10000;
+    
     if (argc > 1) {
         if (argc < 3 || argc > 5) {
             error("use: %s ntasks nnodes (runtime) ()\n",argv[0]);
@@ -106,15 +97,15 @@ int main(int argc, char* argv[]) {
         ntasks    = std::stol(argv[1]);
 		nnodes    = std::stol(argv[2]);
         if(argc >= 4)
-		    attr->sched_runtime = std::stol(argv[3]);
+		    attr.sched_runtime = std::stol(argv[3]);
         if(argc == 5) {
             long val = std::stol(argv[4]);
-            attr->sched_period = val;
-            attr->sched_deadline = val;
+            attr.sched_period = val;
+            attr.sched_deadline = val;
         }
     }
 
-    Source first(ntasks, attr);
+    Source first(ntasks, &attr);
     Sink   last;
 
 	ff_farm farm(false, ntasks, ntasks, false, nnodes + 2, true);
