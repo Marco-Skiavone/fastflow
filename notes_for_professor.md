@@ -2,8 +2,8 @@
 
 > ### Thesis Target:
 > Define a module to centralize the management of a scheduling policy for the Building Blocks (BB).<br>Firstly, focusing on **pipelines** and **farms**.
+<br>
 
----
 > ### Current Task:
 > Create a *manager* that can retrieve all the info about a farm or a pipe.<br>
 > **Reminder:** pipe, farm and a2a have different inputs and outputs. 
