@@ -23,8 +23,7 @@ struct Source: ff_node_t<long> {
 	}
 	long* svc(long*) {
         for(long i = 1; i <= ntasks; ++i) {
-
-			ticks_wait(1000);
+			ticks_wait(1000);	// in base alla macchina, può essere disattivato per tempi diversi!
             ff_send_out((long*)i);
         }
         return EOS;
