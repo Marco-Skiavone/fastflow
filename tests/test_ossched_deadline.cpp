@@ -13,13 +13,7 @@ std::barrier bar{2};
 std::atomic_bool managerstop{false};
 
 struct Source: ff_node_t<long> {
-    Source(const int ntasks, struct sched_attr * attrs):ntasks(ntasks) {
-        // setting attributes for scheduling policy
-        if (set_scheduling_out(attrs, ff_getThreadID()) < 0) {
-            fprintf(stderr, "Thread %ld failed setting DEADLINE: %s\n", ff_getThreadID(), strerrorname_np(errno));
-        }
-        print_thread_attributes(ff_getThreadID());
-    }
+    Source(const int ntasks):ntasks(ntasks) {}
 
 	int svc_init() {
 		bar.arrive_and_wait();        
@@ -27,12 +21,16 @@ struct Source: ff_node_t<long> {
 	}
 	long* svc(long*) {
         for(long i = 1; i <= ntasks; ++i) {
-
 			ticks_wait(1000);
             ff_send_out((long*)i);
         }
         return EOS;
     }
+
+    size_t getTID() {
+        return ff_getThreadID();
+    }
+
     const int ntasks;
 };
 struct Stage: ff_node_t<long> {
@@ -77,7 +75,7 @@ void manager(ff_farm& farm) {
 
 int main(int argc, char* argv[]) {
     // default arguments
-    size_t ntasks = 10000;
+    size_t ntasks = 1000;
     size_t nnodes = 2;
 
     // setting the default values for the sched_attr to be set with SCHED_DEADLINE
@@ -85,17 +83,17 @@ int main(int argc, char* argv[]) {
     attr.size = sizeof(struct sched_attr);
     attr.sched_flags = 0;
     attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_runtime = 5000; // trying half the size of period and deadline
-    attr.sched_deadline = 10000;
-    attr.sched_period = 10000;
+    attr.sched_runtime = 50000;
+    attr.sched_deadline = 20000000;
+    attr.sched_period = 20000000;
     
     if (argc > 1) {
         if (argc < 3 || argc > 5) {
-            error("use: %s ntasks nnodes (runtime) ()\n",argv[0]);
+            error("use: %s ntasks nnodes (runtime) (period/deadline)\n", argv[0]);
             return -1;
         } 
-        ntasks    = std::stol(argv[1]);
-		nnodes    = std::stol(argv[2]);
+        ntasks = std::stol(argv[1]);
+		nnodes = std::stol(argv[2]);
         if(argc >= 4)
 		    attr.sched_runtime = std::stol(argv[3]);
         if(argc == 5) {
@@ -105,29 +103,48 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    Source first(ntasks, &attr);
-    Sink   last;
+    Source first(ntasks);
+    Sink last;
 
+    // ### Creation of farm, adding nodes ###
 	ff_farm farm(false, ntasks, ntasks, false, nnodes + 2, true);
     farm.add_emitter(&first);
 
     std::vector<ff_node *> w;
     for(size_t i = 0; i < nnodes; ++i) 
         w.push_back(new Stage(2000 * i));
-    farm.add_workers(w); // add all workers to the farm
+    farm.add_workers(w);
 
     farm.add_collector(&last);
 
-	// lancio il thread manager
+
+	// ### launching thread manager ###
 	std::thread th(manager, std::ref(farm));
-    
-    if (farm.run_and_wait_end() < 0) {
-        error("running farm\n");
+
+    // #### starting then freezing the farm ###
+    // it should allow us to set the policy
+    if (farm.run_then_freeze() < 0) {
+        error("running then freezing farm\n");
         return -1;
     }
+
+    // setting the SCHED_DEADLINE policy
+    if (first.getTID() && set_scheduling_out(&attr, first.getTID()) != 0)
+        fprintf(stderr, "Error: %d (%s) - %s\n", errno, strerrorname_np(errno), strerror(errno));
+    else
+        fprintf(stderr, "SCHED_DEADLINE set for %lu!\n", first.getTID());
+    print_thread_attributes(first.getTID());
+
+    // ### it thaws the farm, if frozen ###
+    std::printf("farm restart\n");
+    if (farm.run_and_wait_end() < 0) {
+        perror("running farm\n");
+        return -1;
+    }
+
     std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
 	
-	th.join();	// it should make the main thread to wait for th termination (I think)
+	th.join();	// it should make the main thread to wait for th termination
 	std::printf("manager done\n");
 	return 0;
 }
