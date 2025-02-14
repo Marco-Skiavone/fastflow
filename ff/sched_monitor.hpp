@@ -50,7 +50,6 @@ int print_thread_attributes(size_t thread_id) {
     return result;
 }
 
-
 /** Function used to SET the attributes of the current thread, using a `sched_attr` structure. 
  * @param attr is a pointer to the structure of `sched_attr` type, which will contain all attributes required for the scheduling.
  * @param thread_id The TID of the calling thread. Usually stored in `ff/node.hpp`.
@@ -64,31 +63,9 @@ int set_scheduling_out(struct sched_attr * attr, size_t thread_id) {
     }
     
     int result = 0;
-    if ((result = syscall(SYS_sched_setattr, 0, (struct sched_attr *)attr, sizeof(*attr), 0)) != 0) {
+    if ((result = syscall(SYS_sched_setattr, thread_id, attr, 0)) != 0) {
         perror("set_scheduling_out");
         print_sched_attr(attr);
-    }
-    return result;
-}
-
-/** Function used to SET the attributes of the current thread, in a pre-set DEADLINE configuration. 
- * @param thread_id The TID of the calling thread. Usually stored in `ff/node.hpp`.
- * @returns 0 - Success\\
- * @returns Otherwise - The error returned by the system call.
- */
-int set_scheduling_out(size_t thread_id) {
-    int result = 0;
-    struct sched_attr attr = {0};
-    attr.size = sizeof(struct sched_attr);
-    attr.sched_flags = 0;
-    attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_period = 10000;
-    attr.sched_deadline = 10000;
-    attr.sched_runtime = 5000; // trying half the size of period and deadline
-
-    if ((result = syscall(SYS_sched_setattr, thread_id, &attr, sizeof(attr), 0)) != 0) {
-        perror("set_scheduling_out failed");
-        print_sched_attr(&attr);
     }
     return result;
 }
