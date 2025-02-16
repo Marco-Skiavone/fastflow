@@ -5,8 +5,11 @@
 #include <atomic>
 #include <chrono>
 
+#if !defined(FF_INITIAL_BARRIER)
+    // to run this test we need to be sure that the initial barrier is executed
+    #define FF_INITIAL_BARRIER
+#endif
 #include <ff/ff.hpp>
-
 using namespace ff;
 
 std::barrier bar{2};
@@ -121,8 +124,10 @@ int main(int argc, char* argv[]) {
 	// ### launching thread manager ###
 	std::thread th(manager, std::ref(farm));
 
-    // #### starting then freezing the farm ###
-    // it should allow us to set the policy
+    farm.blocking_mode();
+
+    // #### starting the farm ###
+    // it should allow us to set the policy after that
     if (farm.run_then_freeze() < 0) {
         error("running then freezing farm\n");
         return -1;
