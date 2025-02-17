@@ -9,6 +9,11 @@
     // to run this test we need to be sure that the initial barrier is executed
     #define FF_INITIAL_BARRIER
 #endif
+
+#if !defined(TRACE_FASTFLOW)
+    #define TRACE_FASTFLOW
+#endif
+
 #include <ff/ff.hpp>
 using namespace ff;
 
@@ -66,10 +71,10 @@ void manager(ff_farm& farm) {
 
     std::printf("0.\n");
 	while(!managerstop) {
-		for(size_t i = 0; i < nodes.size(); ++i) {		
-			svector<ff_node*> in;		
-			nodes[i]->get_out_nodes(in);
-			std::printf("node%ld qlen=%ld\n", i + 1, in[0]->get_out_buffer()->length());
+		for(size_t i = 0; i < nodes.size(); ++i) {
+            svector<ff_node*> in;		
+            nodes[i]->get_out_nodes(in);
+            std::printf("node%ld qlen=%ld\n", i + 1, in[0]->get_out_buffer()->length());
 		}
 		std::printf("-------\n");
 	}
@@ -146,8 +151,8 @@ int main(int argc, char* argv[]) {
         perror("running farm\n");
         return -1;
     }
-
     std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
+    farm.ffStats(std::cout);
 	
 	th.join();	// it should make the main thread to wait for th termination
 	std::printf("manager done\n");
