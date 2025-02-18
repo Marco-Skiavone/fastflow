@@ -68,14 +68,22 @@ void manager(ff_farm& farm) {
 	std::printf("manager started\n");
 
 	svector<ff_node*> nodes = farm.getWorkers();
+	ff_farm::lb_t * lb = farm.getlb();
+	ff_farm::gt_t * gt = farm.getgt();
 
     std::printf("0.\n");
 	while(!managerstop) {
-		for(size_t i = 0; i < nodes.size(); ++i) {
-            svector<ff_node*> in;		
-            nodes[i]->get_out_nodes(in);
-            std::printf("node%ld qlen=%ld\n", i + 1, in[0]->get_out_buffer()->length());
+        std::printf("lb: completed_tasks:%ld\n", lb->getnumtask());
+        for(size_t i = 0; i < nodes.size(); ++i) {
+            // has access to the counter of completed tasks. Enabled by FF_TRACE variables 
+            std::printf("node%ld completed_tasks:%ld\n", i + 1, nodes[i]->getnumtask());    
+		        // following lines are the previous method to see the output queues of the worker 
+                // NOT working for first and last nodes of the farm!
+                /* svector<ff_node*> in;		
+                nodes[i]->get_out_nodes(in);
+                std::printf("node%ld qlen=%ld\n", i + 1, in[0]->get_out_buffer()->length()); */
 		}
+        std::printf("gt: completed_tasks:%ld\n", gt->getnumtask());
 		std::printf("-------\n");
 	}
 	std::printf("manager completed\n");
@@ -125,7 +133,6 @@ int main(int argc, char* argv[]) {
 
     farm.add_collector(&last);
 
-
 	// ### launching thread manager ###
 	std::thread th(manager, std::ref(farm));
 
@@ -152,7 +159,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
-    farm.ffStats(std::cout);
+    //farm.ffStats(std::cout);  // It prints out some stats about the farm, for emitter, collector and every worker 
 	
 	th.join();	// it should make the main thread to wait for th termination
 	std::printf("manager done\n");
