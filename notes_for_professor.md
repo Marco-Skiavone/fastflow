@@ -9,7 +9,7 @@
 
  ---
 
- <br>
+<br>
 
 ### Thesis Target:
 Define a module to centralize the management of a scheduling policy for the Building Blocks (BB). Firstly, we are focusing on **pipelines** and **farms**.
@@ -22,6 +22,15 @@ Create a *manager* that can retrieve all the info about a farm or a pipe.<br>
 ---
 
 ### Updates:
+> There is a function that prints on a stream some stats about the gain of each node. It retrieves:<br>
+>   - work-time (ms)
+>   - n. of **tasks**
+>   - svc ticks (+ min ticks & max ticks)
+>   - n. of **push lost** (+ ticks of pushes lost)
+>   - n. of **pop lost** (+ ticks of pops lost)
+
+#### TODO:<br>Maybe to discuss with Professor Torquati to see if we really can make the manager gather those stats as valid data. 
+- To define `TRACE_FASTFLOW` lets us use some extra variables in **node.hpp** that count ticks and # of task completed. 
 - Just found out that to define `FF_INITIAL_BARRIER` lets us start the threads without giving certain errors (see *tests/test_lb_affinity.cpp* for details).
 
 
