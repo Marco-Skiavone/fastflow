@@ -75,7 +75,7 @@ void manager(ff_farm& farm) {
 	while(!managerstop) {
         std::printf("lb: completed_tasks:%ld\n", lb->getnumtask());
         for(size_t i = 0; i < nodes.size(); ++i) {
-            // has access to the counter of completed tasks. Enabled by FF_TRACE variables 
+            // has access to the counter of completed tasks. Enabled by TRACE_FASTFLOW variables 
             std::printf("node%ld completed_tasks:%ld\n", i + 1, nodes[i]->getnumtask());    
 		        // following lines are the previous method to see the output queues of the worker 
                 // NOT working for first and last nodes of the farm!
