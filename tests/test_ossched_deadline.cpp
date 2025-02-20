@@ -21,10 +21,16 @@ std::barrier bar{2};
 std::atomic_bool managerstop{false};
 
 struct Source: ff_node_t<long> {
+	// EB2MS: inserire nel costruttore un parametro n_threads che dice quanti nodi sono. Questo serve per dividere la banda equamente fra tutti
     Source(const int ntasks):ntasks(ntasks) {}
 
+	// EB2MS: per bloccare correttamente i nodi prima che il manager abbia impostato gli sched_attrs
 	int svc_init() {
+		// EB2MS: si dovrebbe impostare sched_setattr qui con PID=0 (me stesso) per TUTTI i thread
+		// parametri budget/deadline/period di default divisi equamente fra gli n_threads
+		// ovvero budget proporzionale a 1/n_threads
 		bar.arrive_and_wait();        
+		// EB2MS: qui prendere il tempo iniziale
 		return 0;
 	}
 	long* svc(long*) {
@@ -58,12 +64,14 @@ struct Sink: ff_node_t<long> {
     size_t counter = 0;
 
 	void svc_end() {
+		// EB2MS: qui prendere il tempo finale e fare differenza con tempo iniziale
 		std::printf("Sink finished\n");
 		managerstop = true;
 	}
 };
 
 void manager(ff_farm& farm) {
+// EB2MS: il manager dovrebbe soltanto SPOSTARE CPU bandwidth da un thread all'altro, mantenendo una tabellina sugli spostamenti
 	bar.arrive_and_wait();
 	std::printf("manager started\n");
 
@@ -90,6 +98,8 @@ void manager(ff_farm& farm) {
 }
 
 int main(int argc, char* argv[]) {
+
+    // EB2MS: WARNING fare bene attenzione a dove si mette la lettura di clock_gettime perche' deve essere presa dallo sblocco dell'emettitore alla fine del collettore (svc_end del collettore)
     // default arguments
     size_t ntasks = 1000;
     size_t nnodes = 2;
@@ -136,16 +146,22 @@ int main(int argc, char* argv[]) {
 	// ### launching thread manager ###
 	std::thread th(manager, std::ref(farm));
 
+	// EB2MS: qui si abilita blocking con condition dei pthread con timeout. Sarebbe da rimuovere perche' vogliamo l'attesa attiva pura
+	// che poi venga ridotta dal manager
     farm.blocking_mode();
 
     // #### starting the farm ###
     // it should allow us to set the policy after that
+    // EB2MS: NO, il freeze non serve, serve solo a freezare alla fine, quindi sostituire con run_and_wait_end()
+    
     if (farm.run_then_freeze() < 0) {
         error("running then freezing farm\n");
         return -1;
     }
 
     // setting the SCHED_DEADLINE policy
+    // EB2MS: ci pare di capire che sotto stai assegnando SCHED_DEADLINE solo a uno. Perche'?
+    // Se per fare una prova, va bene. In generale, meglio impostare SCHED_DEADLINE in svc_init
     if (first.getTID() && set_scheduling_out(&attr, first.getTID()) != 0)
         fprintf(stderr, "Error: %d (%s) - %s\n", errno, strerrorname_np(errno), strerror(errno));
     else
