@@ -22,17 +22,93 @@ std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
 
+
+struct Source: ff_node_t<long> {
+	// EB2MS: inserire nel costruttore un parametro n_threads che dice quanti nodi sono. Questo serve per dividere la banda equamente fra tutti
+    Source(const int ntasks, size_t n_threads): ntasks(ntasks) , n_threads(n_threads) {}
+
+	// EB2MS: per bloccare correttamente i nodi prima che il manager abbia impostato gli sched_attrs
+	int svc_init() {
+		// EB2MS: si dovrebbe impostare sched_setattr qui con PID=0 (me stesso) per TUTTI i thread
+		// parametri budget/deadline/period di default divisi equamente fra gli n_threads
+		// ovvero budget proporzionale a 1/n_threads
+        struct sched_attr attr = {0};
+        attr.size = sizeof(struct sched_attr);
+        attr.sched_flags = 0;
+        attr.sched_policy = SCHED_DEADLINE;
+        attr.sched_deadline = 1000000L;
+        attr.sched_period   = 1000000L;   // 1M 
+        attr.sched_runtime = (long long unsigned int)((float)attr.sched_deadline / n_threads);
+        
+        if (set_scheduling_out(&attr, ff_getThreadID()))
+            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
+        print_thread_attributes(ff_getThreadID());
+
+        // --- End of schedule setting ---
+		bar.arrive_and_wait();        
+
+		// EB2MS: qui prendere il tempo iniziale
+        if (clock_gettime(CLOCK_REALTIME, &start_time))
+            fprintf(stderr, "ERROR in [start] clock_gettime()!\n");
+		return 0;
+	}
+	long* svc(long*) {
+        for(long i = 1; i <= ntasks; ++i) {
+			ticks_wait(1000);
+            ff_send_out((long*)i);
+        }
+        return EOS;
+    }
+
+    const int ntasks;
+    const size_t n_threads;
+};
+
 struct Stage: ff_node_t<long> {
-	Stage(long workload):workload(workload) {}
+	Stage(long workload, size_t n_threads): workload(workload), n_threads(n_threads) {}
+
+    int svc_init() {
+        struct sched_attr attr = {0};
+        attr.size = sizeof(struct sched_attr);
+        attr.sched_flags = 0;
+        attr.sched_policy = SCHED_DEADLINE;
+        attr.sched_deadline = 1000000L;
+        attr.sched_period   = 1000000L;   // 1M 
+        attr.sched_runtime = (long long unsigned int)((float)attr.sched_deadline / n_threads);
+        
+        if (set_scheduling_out(&attr, ff_getThreadID()))
+            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
+        print_thread_attributes(ff_getThreadID());
+        return 0;
+    }
+
     long* svc(long*in) {
 		ticks_wait(workload);
         return in;
     }
 
 	long workload;
+    const size_t n_threads;
 };
 
 struct Sink: ff_node_t<long> {
+    Sink(size_t n_threads): n_threads(n_threads) {}
+
+    int svc_init() {
+        struct sched_attr attr = {0};
+        attr.size = sizeof(struct sched_attr);
+        attr.sched_flags = 0;
+        attr.sched_policy = SCHED_DEADLINE;
+        attr.sched_deadline = 1000000L;
+        attr.sched_period   = 1000000L;   // 1M 
+        attr.sched_runtime = (long long unsigned int)((float)attr.sched_deadline / n_threads);
+        
+        if (set_scheduling_out(&attr, ff_getThreadID()))
+            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
+        print_thread_attributes(ff_getThreadID());
+        return 0;
+    }
+
     long* svc(long*) {
 		ticks_wait(1000);
         ++counter;
@@ -47,73 +123,16 @@ struct Sink: ff_node_t<long> {
 		std::printf("Sink finished\n");
 		managerstop = true;
 	}
-};
 
-struct Source: ff_node_t<long> {
-	// EB2MS: inserire nel costruttore un parametro n_threads che dice quanti nodi sono. Questo serve per dividere la banda equamente fra tutti
-    Source(const int ntasks, ff_farm& farm):ntasks(ntasks) , farm(farm) {}
-
-	// EB2MS: per bloccare correttamente i nodi prima che il manager abbia impostato gli sched_attrs
-	int svc_init() {
-		// EB2MS: si dovrebbe impostare sched_setattr qui con PID=0 (me stesso) per TUTTI i thread
-		// parametri budget/deadline/period di default divisi equamente fra gli n_threads
-		// ovvero budget proporzionale a 1/n_threads
-        long unsigned int i;
-        svector<ff_node*> nodes = farm.getWorkers();
-        struct sched_attr attr = {0};
-        attr.size = sizeof(struct sched_attr);
-        attr.sched_flags = 0;
-        attr.sched_policy = SCHED_DEADLINE;
-        attr.sched_deadline = 1000000000000;
-        attr.sched_period = 1000000000000000;
-        attr.sched_runtime = (long long unsigned int)((float)attr.sched_deadline / ntasks);
-        
-        if (set_scheduling_out(&attr, ff_getThreadID()))
-            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
-        print_thread_attributes(ff_getThreadID());
-
-        // Worker setting
-        for (i = 0; i < farm.getNWorkers(); ++i) {
-            if (set_scheduling_out(&attr, nodes[i]->getOSThreadId()))
-                fprintf(stderr, "Error: %s (%s) - (line %d for worker %lu)\n", strerror(errno), strerrorname_np(errno), __LINE__, i);
-            print_thread_attributes(nodes[i]->getOSThreadId());
-        }
-
-        if (set_scheduling_out(&attr, farm.getCollector()->getOSThreadId()))
-            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
-        print_thread_attributes(farm.getCollector()->getOSThreadId());
-
-        // --- End of schedule setting ---
-		bar.arrive_and_wait();        
-
-		// EB2MS: qui prendere il tempo iniziale
-        if (clock_gettime(CLOCK_REALTIME, &start_time))
-            fprintf(stderr, "ERROR in [start] clock_gettime()!\n");
-
-		return 0;
-	}
-	long* svc(long*) {
-        for(long i = 1; i <= ntasks; ++i) {
-			ticks_wait(1000);
-            ff_send_out((long*)i);
-        }
-        return EOS;
-    }
-
-    size_t getTID() {
-        return ff_getThreadID();
-    }
-
-    const int ntasks;
-    const ff_farm farm;
+    const size_t n_threads;
 };
 
 void manager(ff_farm& farm) {
-// EB2MS: il manager dovrebbe soltanto SPOSTARE CPU bandwidth da un thread all'altro, mantenendo una tabellina sugli spostamenti
+    // EB2MS: il manager dovrebbe soltanto SPOSTARE CPU bandwidth da un thread all'altro, mantenendo una tabellina sugli spostamenti
 	bar.arrive_and_wait();
 	std::printf("manager started\n");
-
-	svector<ff_node*> nodes = farm.getWorkers();
+	
+    svector<ff_node*> nodes = farm.getWorkers();
 	ff_farm::lb_t * lb = farm.getlb();
 	ff_farm::gt_t * gt = farm.getgt();
 
@@ -123,11 +142,6 @@ void manager(ff_farm& farm) {
         for(size_t i = 0; i < nodes.size(); ++i) {
             // has access to the counter of completed tasks. Enabled by TRACE_FASTFLOW variables 
             std::printf("node%ld completed_tasks:%ld\n", i + 1, nodes[i]->getnumtask());    
-		        // following lines are the previous method to see the output queues of the worker 
-                // NOT working for first and last nodes of the farm!
-                /* svector<ff_node*> in;		
-                nodes[i]->get_out_nodes(in);
-                std::printf("node%ld qlen=%ld\n", i + 1, in[0]->get_out_buffer()->length()); */
 		}
         std::printf("gt: completed_tasks:%ld\n", gt->getnumtask());
 		std::printf("-------\n");
@@ -136,7 +150,6 @@ void manager(ff_farm& farm) {
 }
 
 int main(int argc, char* argv[]) {
-
     // EB2MS: WARNING fare bene attenzione a dove si mette la lettura di clock_gettime perche' deve essere presa dallo sblocco dell'emettitore alla fine del collettore (svc_end del collettore)
     // default arguments
     size_t ntasks = 1000;
@@ -149,28 +162,29 @@ int main(int argc, char* argv[]) {
         } 
         ntasks = std::stol(argv[1]);
 		nnodes = std::stol(argv[2]);
+        if (nnodes > 7) nnodes = 7;
     }
 
     // ### Creation of farm, adding nodes ###
 	ff_farm farm(false, ntasks, ntasks, false, nnodes + 2, true);
 
-    Sink last;
-    farm.add_collector(&last);
+    // NOTE: 'nnodes' is the total amount of internal nodes, we're adding 1 emitter and 1 collector
+    Source first(ntasks, nnodes+2); 
+    farm.add_emitter(&first);
 
     std::vector<ff_node *> w;
     for(size_t i = 0; i < nnodes; ++i) 
-        w.push_back(new Stage(2000 * i));
+        w.push_back(new Stage(2000 * i, nnodes+2));
     farm.add_workers(w);
 
-    Source first(ntasks, farm);
-    farm.add_emitter(&first);
+    Sink last(nnodes+2);
+    farm.add_collector(&last);
 
 	// ### launching thread manager ###
 	std::thread th(manager, std::ref(farm));
 
 	// EB2MS: qui si abilita blocking con condition dei pthread con timeout. Sarebbe da rimuovere perche' vogliamo l'attesa attiva pura
-	// che poi venga ridotta dal manager
-    // farm.blocking_mode(); // --> Actually removed
+	// che poi venga ridotta dal manager // farm.blocking_mode(); // --> Actually removed
 
     // #### starting the farm ###
     if (farm.run_and_wait_end() < 0) {
@@ -183,7 +197,7 @@ int main(int argc, char* argv[]) {
 
     std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
     std::cerr << "--------\n";
-    farm.ffStats(std::cout);  // It prints out some stats about the farm, for emitter, collector and every worker 
+    //farm.ffStats(std::cout);  // It prints out some stats about the farm, for emitter, collector and every worker 
 	
 	th.join();	// it should make the main thread to wait for th termination
 	std::printf("manager done\n");
