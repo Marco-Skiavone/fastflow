@@ -81,7 +81,7 @@ struct Stage: ff_node_t<long> {
         print_thread_attributes(ff_getThreadID());
         return 0;
     }
-
+  
     long* svc(long*in) {
 		ticks_wait(workload);
         return in;
@@ -142,7 +142,7 @@ void manager(ff_farm& farm) {
         for(size_t i = 0; i < nodes.size(); ++i) {
             // has access to the counter of completed tasks. Enabled by TRACE_FASTFLOW variables 
             std::printf("node%ld completed_tasks:%ld\n", i + 1, nodes[i]->getnumtask());    
-		}
+		    }
         std::printf("gt: completed_tasks:%ld\n", gt->getnumtask());
 		std::printf("-------\n");
 	}
@@ -154,7 +154,7 @@ int main(int argc, char* argv[]) {
     // default arguments
     size_t ntasks = 1000;
     size_t nnodes = 2;
-    
+  
     if (argc > 1) {
         if (argc != 3) {
             error("use: %s ntasks nnodes (runtime) (period/deadline)\n", argv[0]);
@@ -197,6 +197,7 @@ int main(int argc, char* argv[]) {
 
     std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
     std::cerr << "--------\n";
+
     //farm.ffStats(std::cout);  // It prints out some stats about the farm, for emitter, collector and every worker 
 	
 	th.join();	// it should make the main thread to wait for th termination

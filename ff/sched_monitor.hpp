@@ -78,11 +78,10 @@ int print_thread_attributes(size_t thread_id) {
     } else {
         fprintf(stderr, "Thread %ld={policy: %u, flags: %llu, nice: %u, priority: %u, [RT: %llu, DL: %llu, period: %llu]}\n", 
             thread_id, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority, 
-                    printable.sched_runtime, printable.sched_deadline, printable.sched_period);
+                  printable.sched_runtime, printable.sched_deadline, printable.sched_period);
     }
     return result;
 }
-
 
 /** Function used to SET the attributes of the current thread, using a `sched_attr` structure. 
  * @param attr is a pointer to the structure of `sched_attr` type, which will contain all attributes required for the scheduling.

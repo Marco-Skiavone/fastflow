@@ -366,7 +366,7 @@ protected:
      *
      * It pops the task from buffer.
      *
-     * \parm task is a void pointer
+     * \param task is a void pointer
      *
      * \return \p true if successful
      */
@@ -1185,6 +1185,7 @@ public:
             running = -1;
             return -1;
         }
+        // fprintf(stderr, "Thread %d, %s: %d\n", gettid(), __FILE__, __LINE__);
         return 0;
     }
 

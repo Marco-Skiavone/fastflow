@@ -61,7 +61,6 @@
 
 #endif
 
-
 namespace ff {
 
 // distributed rts related type, but always defined
@@ -236,9 +235,11 @@ protected:
     }
 
     virtual ~ff_thread() {}
-    
+
     void thread_routine() {
         threadid = ff_getThreadID();
+        /* fprintf(stderr, "Created thread %ld, %s: %d\n", threadid, __FILE__, __LINE__); DEBUG */
+        print_thread_attributes(threadid);
 #if defined(FF_INITIAL_BARRIER)
         if (barrier) {
             barrier->doBarrier(tid);
@@ -313,7 +314,6 @@ protected:
         }
         return 0;
     }
-
 
 #if defined(FF_TASK_CALLBACK)
     virtual void callbackIn(void  * =NULL) { }
