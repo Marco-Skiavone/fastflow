@@ -38,14 +38,8 @@ int print_sched_affinity(pid_t pid) {
     CPU_ZERO(&mask);    // it clears the mask and let us write on it
     if ((res = sched_getaffinity(pid, sizeof(cpu_set_t), &mask)))
         perror("set_sched_affinity");
-    if (!res) {
-        fprintf(stderr, "Affinity mask for thread %u:\t", pid);
-        for(int i = 0; i < N_PROCESSORS; ++i) {
-            if (CPU_ISSET(i, &mask))
-                fprintf(stderr, " %2d ", i);
-        }
-        fprintf(stderr, "\n");
-    }
+    if (!res)
+        fprintf(stderr, "\nAffinity mask for thread %u:\t%u/%ld\n", pid, CPU_COUNT(&mask), N_PROCESSORS);
     return res;
 }
 
@@ -79,11 +73,11 @@ int print_thread_attributes(size_t thread_id) {
     }
 
     if (printable.sched_policy == 0) {
-        fprintf(stderr, "Thread %ld: {size: %u, policy: %u (0 for SCHED_OTHER), flags: %llu, nice: %u, priority: %u}\n", thread_id, 
-            printable.size, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority);
+        fprintf(stderr, "Thread %ld={policy: %u, flags: %llu, nice: %u, priority: %u}\n", thread_id, 
+            printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority);
     } else {
-        fprintf(stderr, "Thread %ld: {size: %u, policy: %u, flags: %llu, nice: %u, priority: %u, runtime: %llu, deadline: %llu, period: %llu}\n", 
-            thread_id, printable.size, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority, 
+        fprintf(stderr, "Thread %ld={policy: %u, flags: %llu, nice: %u, priority: %u, [RT: %llu, DL: %llu, period: %llu]}\n", 
+            thread_id, printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority, 
                     printable.sched_runtime, printable.sched_deadline, printable.sched_period);
     }
     return result;
