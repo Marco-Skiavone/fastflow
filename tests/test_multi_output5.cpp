@@ -379,7 +379,7 @@ int main(int argc, char* argv[]) {
             }
             return W;
         } () );
-    Emitter1 E1(ntasks, farm1.getlb(), manager.getChannel1());
+    Emitter1 E1(ntasks, farm1.getlb(), manager.getChannel1());  // ** manager ?! **
     farm1.remove_collector();
     farm1.add_emitter(E1);  
 

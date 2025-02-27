@@ -48,6 +48,9 @@
 #include <ff/barrier.hpp>
 #include <atomic>
 
+/* #include added to print sched_attr */
+#include "sched_monitor.hpp"
+
 #ifdef DFF_ENABLED
 
 #include <ff/distributed/ff_network.hpp>
