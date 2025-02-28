@@ -114,7 +114,6 @@ struct Sink: ff_node_t<long> {
         ++counter;
         return GO_ON;
     }
-    size_t counter = 0;
 
 	void svc_end() {
 		// EB2MS: qui prendere il tempo finale e fare differenza con tempo iniziale
@@ -124,6 +123,7 @@ struct Sink: ff_node_t<long> {
 		managerstop = true;
 	}
 
+    size_t counter = 0;
     const size_t n_threads;
 };
 
