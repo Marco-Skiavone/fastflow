@@ -39,7 +39,7 @@ int print_sched_affinity(pid_t pid) {
     if ((res = sched_getaffinity(pid, sizeof(cpu_set_t), &mask)))
         perror("set_sched_affinity");
     if (!res)
-        fprintf(stderr, "\nAffinity mask for thread %u:\t%u/%ld\n", pid, CPU_COUNT(&mask), N_PROCESSORS);
+        fprintf(stderr, "Affinity mask for thread %u:\t%u/%ld\n", pid, CPU_COUNT(&mask), N_PROCESSORS);
     return res;
 }
 
