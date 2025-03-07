@@ -22,27 +22,35 @@ std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
 
+/** Used to wrap the setting of the sched_attr in a function, used by all elements of this test.
+ * @param n_threads number of threads in the current simulation (Emitter and Collector included). 
+ * @param period_deadline value to set as `period` and `deadline` of the sched attr. 
+ * @note The `runtime` attribute will be derived by the other two as . */
+void set_deadline_attr(size_t n_threads, size_t period_deadline) {
+    struct sched_attr attr = {0};
+    attr.size = sizeof(struct sched_attr);
+    attr.sched_flags = 0;
+    attr.sched_policy = SCHED_DEADLINE;
+    attr.sched_deadline = period_deadline;  // default: 1M
+    attr.sched_period   = period_deadline;  // default: 1M
+    attr.sched_runtime = (long long unsigned int)((float)period_deadline / n_threads);
+    
+    if (set_scheduling_out(&attr, ff_getThreadID()))
+        fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
+    print_thread_attributes(ff_getThreadID());
+}
+
 
 struct Source: ff_node_t<long> {
 	// EB2MS: inserire nel costruttore un parametro n_threads che dice quanti nodi sono. Questo serve per dividere la banda equamente fra tutti
-    Source(const int ntasks, size_t n_threads): ntasks(ntasks) , n_threads(n_threads) {}
+    Source(const int ntasks, size_t n_threads, size_t period_deadline): ntasks(ntasks) , n_threads(n_threads), period_deadline(period_deadline) {}
 
 	// EB2MS: per bloccare correttamente i nodi prima che il manager abbia impostato gli sched_attrs
 	int svc_init() {
 		// EB2MS: si dovrebbe impostare sched_setattr qui con PID=0 (me stesso) per TUTTI i thread
 		// parametri budget/deadline/period di default divisi equamente fra gli n_threads
 		// ovvero budget proporzionale a 1/n_threads
-        struct sched_attr attr = {0};
-        attr.size = sizeof(struct sched_attr);
-        attr.sched_flags = 0;
-        attr.sched_policy = SCHED_DEADLINE;
-        attr.sched_deadline = 1000000L;
-        attr.sched_period   = 1000000L;   // 1M 
-        attr.sched_runtime = (long long unsigned int)((float)attr.sched_deadline / n_threads);
-        
-        if (set_scheduling_out(&attr, ff_getThreadID()))
-            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
-        print_thread_attributes(ff_getThreadID());
+        set_deadline_attr(n_threads, period_deadline);
 
         // --- End of schedule setting ---
 		bar.arrive_and_wait();        
@@ -62,23 +70,14 @@ struct Source: ff_node_t<long> {
 
     const int ntasks;
     const size_t n_threads;
+    const size_t period_deadline;
 };
 
 struct Stage: ff_node_t<long> {
-	Stage(long workload, size_t n_threads): workload(workload), n_threads(n_threads) {}
+	Stage(long workload, size_t n_threads, size_t period_deadline): workload(workload), n_threads(n_threads), period_deadline(period_deadline) {}
 
     int svc_init() {
-        struct sched_attr attr = {0};
-        attr.size = sizeof(struct sched_attr);
-        attr.sched_flags = 0;
-        attr.sched_policy = SCHED_DEADLINE;
-        attr.sched_deadline = 1000000L;
-        attr.sched_period   = 1000000L;   // 1M 
-        attr.sched_runtime = (long long unsigned int)((float)attr.sched_deadline / n_threads);
-        
-        if (set_scheduling_out(&attr, ff_getThreadID()))
-            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
-        print_thread_attributes(ff_getThreadID());
+        set_deadline_attr(n_threads, period_deadline);
         return 0;
     }
   
@@ -89,23 +88,14 @@ struct Stage: ff_node_t<long> {
 
 	long workload;
     const size_t n_threads;
+    const size_t period_deadline;
 };
 
 struct Sink: ff_node_t<long> {
-    Sink(size_t n_threads): n_threads(n_threads) {}
+    Sink(size_t n_threads, size_t period_deadline): n_threads(n_threads), period_deadline(period_deadline) {}
 
     int svc_init() {
-        struct sched_attr attr = {0};
-        attr.size = sizeof(struct sched_attr);
-        attr.sched_flags = 0;
-        attr.sched_policy = SCHED_DEADLINE;
-        attr.sched_deadline = 1000000L;
-        attr.sched_period   = 1000000L;   // 1M 
-        attr.sched_runtime = (long long unsigned int)((float)attr.sched_deadline / n_threads);
-        
-        if (set_scheduling_out(&attr, ff_getThreadID()))
-            fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
-        print_thread_attributes(ff_getThreadID());
+        set_deadline_attr(n_threads, period_deadline);
         return 0;
     }
 
@@ -125,6 +115,7 @@ struct Sink: ff_node_t<long> {
 
     size_t counter = 0;
     const size_t n_threads;
+    const size_t period_deadline;
 };
 
 void manager(ff_farm& farm) {
@@ -154,30 +145,33 @@ int main(int argc, char* argv[]) {
     // default arguments
     size_t ntasks = 1000;
     size_t nnodes = 2;
+    size_t period_deadline = 1000000; // Default at 1M
   
     if (argc > 1) {
-        if (argc != 3) {
-            error("use: %s ntasks nnodes (runtime) (period/deadline)\n", argv[0]);
+        if (argc < 3 || argc > 4) {
+            error("use: %s ntasks nnodes (?period/deadline)\n", argv[0]);
             return -1;
         } 
         ntasks = std::stol(argv[1]);
 		nnodes = std::stol(argv[2]);
-        if (nnodes > 7) nnodes = 7;
+        if (argc > 3) 
+            period_deadline = std::stol(argv[3]);
+        if (nnodes > 6) nnodes = 6;
     }
 
     // ### Creation of farm, adding nodes ###
 	ff_farm farm(false, ntasks, ntasks, false, nnodes + 2, true);
 
     // NOTE: 'nnodes' is the total amount of internal nodes, we're adding 1 emitter and 1 collector
-    Source first(ntasks, nnodes+2); 
+    Source first(ntasks, nnodes+2, period_deadline); 
     farm.add_emitter(&first);
 
     std::vector<ff_node *> w;
     for(size_t i = 0; i < nnodes; ++i) 
-        w.push_back(new Stage(2000 * i, nnodes+2));
+        w.push_back(new Stage(2000 * i, nnodes+2, period_deadline));
     farm.add_workers(w);
 
-    Sink last(nnodes+2);
+    Sink last(nnodes + 2, period_deadline);
     farm.add_collector(&last);
 
 	// ### launching thread manager ###
