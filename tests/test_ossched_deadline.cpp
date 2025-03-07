@@ -17,6 +17,15 @@
 #include <ff/ff.hpp>
 using namespace ff;
 
+/**
+ * CLOCK_PROCESS_CPUTIME_ID (since Linux 2.6.12)
+ *   This  is  a clock that measures CPU time consumed by this process (i.e., CPU time consumed by all threads in the process).
+ * CLOCK_THREAD_CPUTIME_ID (since Linux 2.6.12)
+ *   This is a clock that measures CPU time consumed by this thread.  
+ */
+#define CLOCK_TYPE (CLOCK_PROCESS_CPUTIME_ID)
+// Really do not know how to procede with clock type setting, what should we register ?
+
 std::barrier bar{2};
 std::atomic_bool managerstop{false};
 struct timespec start_time;
@@ -56,7 +65,7 @@ struct Source: ff_node_t<long> {
 		bar.arrive_and_wait();        
 
 		// EB2MS: qui prendere il tempo iniziale
-        if (clock_gettime(CLOCK_REALTIME, &start_time))
+        if (clock_gettime(CLOCK_TYPE, &start_time))
             fprintf(stderr, "ERROR in [start] clock_gettime()!\n");
 		return 0;
 	}
@@ -107,7 +116,7 @@ struct Sink: ff_node_t<long> {
 
 	void svc_end() {
 		// EB2MS: qui prendere il tempo finale e fare differenza con tempo iniziale
-        if (clock_gettime(CLOCK_REALTIME, &end_time))
+        if (clock_gettime(CLOCK_TYPE, &end_time))
             fprintf(stderr, "ERROR in [end] clock_gettime()!\n");
 		std::printf("Sink finished\n");
 		managerstop = true;
@@ -186,8 +195,8 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // Wanting to see if the time measured is the same as the farm.ffTime()
-    std::cout << "Time used: " << (end_time.tv_sec - start_time.tv_sec) << "." << (end_time.tv_nsec - start_time.tv_nsec) << " s \n";
+    // Time measurement
+    std::cout << "Time used: " << diff_timespec(&end_time, &start_time) << " s \n";
 
     std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
     std::cerr << "--------\n";

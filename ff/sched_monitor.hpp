@@ -12,6 +12,7 @@
 #include <sched.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <time.h>
 
 #define N_PROCESSORS (sysconf(_SC_NPROCESSORS_ONLN))
 
@@ -106,6 +107,16 @@ int set_scheduling_out(struct sched_attr * attr, size_t thread_id) {
     }
     print_sched_affinity(thread_id);
     return result;
+}
+
+/** Used to see difference between initial and final times of the simulation.
+ * @param time1 the end of time period 
+ * @param time0 the start of time period
+ * @returns A double considering also the nanosecs
+ */
+double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
+  return (time1->tv_sec - time0->tv_sec)
+      + (time1->tv_nsec - time0->tv_nsec) / 1000000000.0;
 }
 
 #endif
