@@ -160,21 +160,14 @@ void manager(ff_pipeline& pipe, size_t n_threads) {
 	std::cout << "manager started" << std::endl;
 	
 	const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
-	try {
-
-		while(!managerstop) {
-			for(size_t i = 0; i < (nodes.size() - 1); ++i) {
-				svector<ff_node*> in;		
-				nodes[i]->get_out_nodes(in);
-				buffer_log << "node " << i+1 << ": qlen=" << in[0]->get_out_buffer()->length() << "\n";
-			}
-			buffer_log << "collector: collected=" << nodes[nodes.size() -1]->getnumtask() << std::endl;
-			buffer_log << "-----\n";
+	while(!managerstop) {
+		for(size_t i = 0; i < (nodes.size() - 1); ++i) {
+			svector<ff_node*> in;		
+			nodes[i]->get_out_nodes(in);
+			buffer_log << "node " << i+1 << ": qlen=" << in[0]->get_out_buffer()->length() << "\n";
 		}
-	}
-	catch(const std::exception& e) {
-		std::cerr << e.what() << std::endl;
-		std::cerr << "Log contained: " << buffer_log.str() << std::endl;
+		// buffer_log << "collector: collected=" << nodes[nodes.size() -1]->getnumtask() << std::endl; //-> it gives error
+		buffer_log << "-----\n";
 	}
 	std::cout << "-----\nmanager completed:" << std::endl;
 	std::cout << buffer_log.str() << std::endl;   // printing the output all at once
