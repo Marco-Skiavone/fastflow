@@ -1,5 +1,6 @@
-#include <string>
 #include <iostream>
+#include <string>
+#include <sstream>
 #include <thread>
 #include <barrier>
 #include <atomic>
@@ -62,7 +63,7 @@ void set_deadline_attr(size_t n_threads, size_t period_deadline) {
     attr.sched_runtime = (long long unsigned int)((float)period_deadline / n_threads);
     
     if (set_scheduling_out(&attr, ff_getThreadID()))
-        fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
+        std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
     print_thread_attributes(ff_getThreadID());
 }
 
@@ -74,20 +75,17 @@ struct Source: ff_node_t<long> {
 		bar.arrive_and_wait();
 
 		// EB2MS: qui prendere il tempo iniziale
-
         if (clock_gettime(CLOCK_MONOTONIC, &start_time[0]))
-            fprintf(stderr, "ERROR in [start] clock_gettime(0)!\n");
+            std::cerr << "ERROR in [start] clock_gettime(0)!" << std::endl;
 
 		if (clock_gettime(CLOCK_MONOTONIC_COARSE, &start_time[1]))
-            fprintf(stderr, "ERROR in [start] clock_gettime(1)!\n");
+            std::cerr << "ERROR in [start] clock_gettime(1)!" << std::endl;
 
 		if (clock_gettime(CLOCK_MONOTONIC_RAW, &start_time[2]))
-            fprintf(stderr, "ERROR in [start] clock_gettime(2)!\n");
+            std::cerr << "ERROR in [start] clock_gettime(2)!" << std::endl;
 
 		if (clock_gettime(CLOCK_BOOTTIME, &start_time[3]))
-            fprintf(stderr, "ERROR in [start] clock_gettime(3)!\n");
-		
-		fprintf(stderr, "start times: %ld %ld %ld %ld\n", start_time[0].tv_nsec, start_time[1].tv_nsec, start_time[2].tv_nsec, start_time[3].tv_nsec);
+            std::cerr << "ERROR in [start] clock_gettime(3)!" << std::endl;
 		return 0;
 	}
 	long* svc(long*) {
@@ -135,22 +133,19 @@ struct Sink: ff_node_t<long> {
     
 	void svc_end() {
 		// EB2MS: qui prendere il tempo finale e fare differenza con tempo iniziale
-        
         if (clock_gettime(CLOCK_MONOTONIC, &end_time[0]))
-            fprintf(stderr, "ERROR in [end] clock_gettime(0)!\n");
+            std::cerr << "ERROR in [end] clock_gettime(0)!" << std::endl;
 
 		if (clock_gettime(CLOCK_MONOTONIC_COARSE, &end_time[1]))
-            fprintf(stderr, "ERROR in [end] clock_gettime(1)!\n");
+            std::cerr << "ERROR in [end] clock_gettime(1)!" << std::endl;
 
 		if (clock_gettime(CLOCK_MONOTONIC_RAW, &end_time[2]))
-            fprintf(stderr, "ERROR in [end] clock_gettime(2)!\n");
+            std::cerr << "ERROR in [end] clock_gettime(2)!" << std::endl;
 
 		if (clock_gettime(CLOCK_BOOTTIME, &end_time[3]))
-            fprintf(stderr, "ERROR in [end] clock_gettime(3)!\n");
+            std::cerr << "ERROR in [end] clock_gettime(3)!" << std::endl;
 		
-		fprintf(stderr, "end times: %ld %ld %ld %ld\n", end_time[0].tv_nsec, end_time[1].tv_nsec, end_time[2].tv_nsec, end_time[3].tv_nsec);
-
-		std::printf("Sink finished\n");
+		std::cout << "Sink finished" << std::endl;
 		managerstop = true;
 	}
 
@@ -159,9 +154,10 @@ struct Sink: ff_node_t<long> {
     const size_t period_deadline;
 };
 
-void manager(ff_pipeline& pipe) {
+void manager(ff_pipeline& pipe, size_t n_threads) {
+	std::stringstream buffer_log;	// Creating a string stream to prepare output
 	bar.arrive_and_wait();
-	std::printf("manager started\n");
+	std::cout << "manager started" << std::endl;
 	
 	const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
 
@@ -171,7 +167,6 @@ void manager(ff_pipeline& pipe) {
 			nodes[i]->get_out_nodes(in);
 			std::printf("node%ld qlen=%ld\n", i + 1, in[0]->get_out_buffer()->length());
 		}
-		std::printf("-------\n");
 	}
 	std::printf("manager completed\n");
 }
@@ -210,7 +205,7 @@ int main(int argc, char* argv[]) {
 	// pipe.setXNodeInputQueueLength(10, true);
 	
 	// lancio il thread manager
-	std::thread th(manager, std::ref(pipe));
+	std::thread th(manager, std::ref(pipe), nnodes + 2);
 	
 	// eseguo la pipe
     if (pipe.run_and_wait_end() < 0) {
@@ -218,14 +213,14 @@ int main(int argc, char* argv[]) {
         return -1;
     }	
 
-	std::printf("pipe done\n");	
-	th.join();	// it should make the main thread to wait for th termination (I think)
-	std::printf("manager done\n");
+	std::cout << "pipe done" << std::endl;	
+	th.join();		// it makes the main thread to wait for th termination
+	std::cout << "manager closed" << std::endl;
 
-    std::cout << "Time used[0]: " << diff_timespec(&end_time[0], &start_time[0]) << " s \n";
-    std::cout << "Time used[1]: " << diff_timespec(&end_time[1], &start_time[1]) << " s \n";
-    std::cout << "Time used[2]: " << diff_timespec(&end_time[2], &start_time[2]) << " s \n";
-    std::cout << "Time used[3]: " << diff_timespec(&end_time[3], &start_time[3]) << " s \n";
+    std::cout << "Time used[0]: " << diff_timespec(&end_time[0], &start_time[0]) << " s" << std::endl;
+    std::cout << "Time used[1]: " << diff_timespec(&end_time[1], &start_time[1]) << " s" << std::endl;
+    std::cout << "Time used[2]: " << diff_timespec(&end_time[2], &start_time[2]) << " s" << std::endl;
+    std::cout << "Time used[3]: " << diff_timespec(&end_time[3], &start_time[3]) << " s" << std::endl;
 
 	return 0;
 }
