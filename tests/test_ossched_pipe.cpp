@@ -165,6 +165,9 @@ void manager(ff_pipeline& pipe, size_t n_threads) {
 			svector<ff_node*> in;		
 			nodes[i]->get_out_nodes(in);
 			buffer_log << "node " << i+1 << ": qlen=" << in[0]->get_out_buffer()->length() << "\n";
+            // qui inseriamo controllo e gestione del traffico 
+            /* Se un nodo ha tanto lavoro, un altro nodo ne avrà di meno.
+               -> aumento di X il runtime del primo e riduco di X il runtime del secondo */
 		}
 		// buffer_log << "collector: collected=" << nodes[nodes.size() -1]->getnumtask() << std::endl; //-> it gives error
 		buffer_log << "-----\n";
