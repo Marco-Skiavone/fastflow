@@ -25,26 +25,23 @@ using namespace ff;
  *      This clock does not count time that the system is suspended. */
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
-/** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
-#define RUNTIME_OFFSET(x) ((x) / 20)
-
 std::barrier bar{2};
 std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
 
 /** Used to wrap the setting of the sched_attr in a function, used by all elements of this test.
- * @param n_threads number of threads in the current simulation (Emitter and Collector included) 
- * @param period_deadline value to set as `period` and `deadline` of the sched attr
- * @param runtime the runtime value to set. If 0, it will be set as `period_deadline/n_threads` */
-void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime) {
+ * @param n_threads number of threads in the current simulation (Emitter and Collector included). 
+ * @param period_deadline value to set as `period` and `deadline` of the sched attr. 
+ * @note The `runtime` attribute will be derived by the other two as . */
+void set_deadline_attr(size_t n_threads, size_t period_deadline) {
     struct sched_attr attr = {0};
     attr.size = sizeof(struct sched_attr);
     attr.sched_flags = 0;
     attr.sched_policy = SCHED_DEADLINE;
     attr.sched_deadline = period_deadline;  // default: 1M
     attr.sched_period   = period_deadline;  // default: 1M
-    attr.sched_runtime = runtime != 0 ? runtime : (unsigned long)((float)period_deadline / n_threads);
+    attr.sched_runtime = (long long unsigned int)((float)period_deadline / n_threads);
     
     if (set_scheduling_out(&attr, ff_getThreadID()))
         std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
@@ -55,12 +52,12 @@ struct Source: ff_node_t<long> {
     Source(const int ntasks, size_t n_threads, size_t period_deadline): ntasks(ntasks) , n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline, 0);
+		set_deadline_attr(n_threads, period_deadline);
 		bar.arrive_and_wait();
 
+		// EB2MS: qui prendere il tempo iniziale
 		if (clock_gettime(CLOCK_TYPE, &start_time))
             std::cerr << "ERROR in [start] clock_gettime!" << std::endl;
-
 		return 0;
 	}
 	long* svc(long*) {
@@ -79,7 +76,7 @@ struct Stage: ff_node_t<long> {
 	Stage(long workload, size_t n_threads, size_t period_deadline): workload(workload) , n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline, 0);
+		set_deadline_attr(n_threads, period_deadline);
 		return 0;
 	}
 
@@ -96,7 +93,7 @@ struct Sink: ff_node_t<long> {
 	Sink(size_t n_threads, size_t period_deadline): n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline, 0);
+		set_deadline_attr(n_threads, period_deadline);
 		return 0;
 	}
 
@@ -107,6 +104,7 @@ struct Sink: ff_node_t<long> {
     }
     
 	void svc_end() {
+		// EB2MS: qui prendere il tempo finale e fare differenza con tempo iniziale
 		if (clock_gettime(CLOCK_TYPE, &end_time))
             std::cerr << "ERROR in [end] clock_gettime!" << std::endl;
 
@@ -120,73 +118,25 @@ struct Sink: ff_node_t<long> {
 };
 
 void manager(ff_pipeline& pipe, size_t n_threads) {
-    size_t i;
 	std::stringstream buffer_log;	// Creating a string stream to prepare output
-    struct timespec waiter, ts;
-    waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
-    
 	bar.arrive_and_wait();
 	std::cout << "manager started" << std::endl;
-        
-    const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
-	svector<ff_node*> in_s[nodes.size() - 1];      // out nodes
-	size_t lengths[nodes.size() - 1];              // lengths
-    size_t runtimes_table[nodes.size() - 1];       // runtime_table, updated if set
-    for (i = 0; i < nodes.size() - 1; lengths[i] = 0, runtimes_table[i++] = 0);
-
-    // getting out nodes
-    for (i = 0; i < (nodes.size() - 1); ++i) {
-        nodes[i]->get_out_nodes(in_s[i]);
-    }
-    
+	
+	const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
 	while(!managerstop) {
-        nanosleep(&waiter, NULL);
-        clock_gettime(CLOCK_TYPE, &ts);
-        // TODO adjust nano secs (divide by 1e9) 
-        buffer_log << ts.tv_sec << '.' << ts.tv_nsec;
-        
-        // reading lengths
-        for (i = 0; i < (nodes.size() - 1); ++i) {
-            lengths[i] = in_s[i][0]->get_out_buffer()->length();    // 1st node in output requires "[0]"
-        }
-        
-        /** svector<size_t> diff(nodes.size() - 1);
-         * for (int i = 1; i < size; ++i) {
-         *     diff[i] = len [i+1] - len[i]
-         *     if (diff[i] < min_diff) {
-         *         min_diff = diff[i]
-         *         min_i = i
-         *     }
-         *     // max uguale
-         * }
-         * setattr(max, -X runtime); // 1 ventesimo del runtime iniziale - PER INIZIARE! (FAI PROVE)
-         * setattr(min, +X runtime);
-         * // aggiorno tabellina con tutti i runtime
-         */
-        
-        // just printing (for CSV)
-        for(size_t i = 0; i < (nodes.size() - 1); ++i)
-            buffer_log << ", " << lengths[i];
-        buffer_log << '\n';
+        struct timespec ts;
+        ts.tv_nsec = 1000000; // 1M
+        ts.tv_sec = 0;
+        nanosleep(&ts, NULL);
+        svector<ff_node*> in;
+		for(size_t i = 0; i < (nodes.size() - 1); ++i) {
+            nodes[i]->get_out_nodes(in);
+			buffer_log << "node " << i+1 << ": qlen=" << in[0]->get_out_buffer()->length() << "\n";
+		}
+		buffer_log << "-----\n";
 	}
-
-    std::cout << "-----\nmanager completed:" << std::endl;
-    
-    // writing on file
-    std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
-    if (oFile.is_open()) {
-        if (oFile.good()) {
-            oFile << "TIME\t";
-            for (i = 0; i < nodes.size() - 1; ++i)
-                oFile << "\t\t" << i;
-            oFile << std::endl;
-            oFile << buffer_log.str() << std::endl;   // writing the output on file
-            buffer_log.clear();
-        } else {
-            fprintf(stderr, "Output file in manager gave error!");
-        }
-        oFile.close();
-    }
+	std::cout << "-----\nmanager completed:" << std::endl;
+	std::cout << buffer_log.str() << std::endl;   // printing the output all at once
 }
 
 int main(int argc, char* argv[]) {
@@ -194,7 +144,7 @@ int main(int argc, char* argv[]) {
     size_t ntasks = 1000;
     size_t nnodes = 2;
     size_t period_deadline = 1000000; // Default at 1M
-
+  
     if (argc > 1) {
         if (argc < 3 || argc > 4) {
             error("use: %s ntasks nnodes (period/deadline: optional)\n", argv[0]);
@@ -219,18 +169,19 @@ int main(int argc, char* argv[]) {
 	// setta tutte le code a bounded di capacità 10
 	// pipe.setXNodeInputQueueLength(10, true);
 	
-	// thread manager launch
+	// lancio il thread manager
 	std::thread th(manager, std::ref(pipe), nnodes + 2);
 	
-	// pipe execution
+	// eseguo la pipe
     if (pipe.run_and_wait_end() < 0) {
         error("running pipeline\n");
         return -1;
     }	
 
 	std::cout << "pipe done" << std::endl;	
-	th.join();		// it makes the main thread to wait for th
+	th.join();		// it makes the main thread to wait for th termination
 	std::cout << "manager closed" << std::endl;
-    std::cout << "Time used: " << diff_timespec(&end_time, &start_time) << "s" << std::endl;
+
+    std::cout << "Time used: " << diff_timespec(&end_time, &start_time) << " s" << std::endl;
 	return 0;
 }
