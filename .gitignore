@@ -475,6 +475,7 @@ tests/test_changenode
 tests/test_changesize
 tests/test_changesize2
 tests/test_ossched_pipe
+tests/test_ossched_pipeOLD
 tests/test_ossched_farm 
 tests/test_ossched_deadline
 
