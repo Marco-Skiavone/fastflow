@@ -145,7 +145,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
     }
 
-    // getting out nodes
+    // getting out nodes in in_s[] array
     for (i = 0; i < (nodes.size() - 1); ++i) {
         nodes[i]->get_out_nodes(in_s[i]);
     }
@@ -153,8 +153,8 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 	while(!managerstop) {
         nanosleep(&waiter, NULL);
         clock_gettime(CLOCK_TYPE, &ts);
-        // TODO adjust nano secs (divide by 1e9) 
-        buffer_log << ts.tv_sec << '.' << ts.tv_nsec;
+        // TODO adjust nano secs (divide by 10e9) 
+        buffer_log << (double(ts.tv_sec) + ts.tv_nsec / 10e9);
         
         // reading lengths
         for (i = 0; i < (nodes.size() - 1); ++i) {
@@ -214,7 +214,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 int main(int argc, char* argv[]) {
     // default arguments
     size_t ntasks = 1000;
-    size_t nnodes = 2;
+    size_t nnodes = 3;
     size_t period_deadline = 1000000; // Default at 1M
 
     if (argc > 1) {

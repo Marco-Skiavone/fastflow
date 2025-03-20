@@ -17,11 +17,24 @@ Define a module to centralize the management of a scheduling policy for the Buil
 
 ### Current Task:
 Create a *manager* that can retrieve all the info about a farm or a pipe.<br>
-> **Reminder:**<br>Pipe, farm and a2a have different inputs and outputs. 
+> **Reminder:**<br>Pipe, farm and a2a have different inputs and outputs. I will work with pipelines, for now.
 
 ---
 
 ### Updates:
+Testing if we can move usage time from a node to another. It seems to work.
+- Firstly, we added a clock (`CLOCK_MONOTONIC_RAW`) to see time before and after the simulation
+- Then we output to a stream, to avoid a slowdown due to printing statements.
+- We calculate the differences between *in* and *out* of the nodes, to change the runtime values.
+- Finally we print to a .csv file (`out.csv`) the stream buffer.
+
+> **Note:**<br>
+> The file `tests/test_ossched_pipeOLD.cpp` runs the simulation **without attribute adjustments**.<br> 
+> It can be used to compare times of the simulation before and after this updates.
+
+
+#### <<<----- Previous Updates ----->>>
+
 > There is a function that prints on a stream some stats about the gain of each node. It retrieves:<br>
 >   - work-time (ms)
 >   - n. of **tasks**
@@ -37,15 +50,21 @@ Create a *manager* that can retrieve all the info about a farm or a pipe.<br>
 ---
 
 ### How to run custom *pipe* and *farm* tests
-Compile the files as `make test_ossched_pipe` and `make test_ossched_farm`. <br>
-No policy will be applied yet.
+1. Compile the files as `make test_ossched_pipe` and `make test_ossched_farm`.
+
+2. Run **(as root)** with *ntasks* *nnodes* and *period/runtimes* (default: 1000 3 1M)
+``` bash
+sudo ./test_ossched_pipe 1000 6 10000000
+```
 
 ### How to run a SCHED_DEADLINE test
+At the beginning of the internship, the purpose of this file was to understand how to set up the desired scheduling policy (`SCHED_DEADLINE`).
+
 1. Compile:
 ``` bash
 make test_ossched_deadline
 ```
-2. **(A)** - Run **(as root)** with *ntast* *nnodes*:
+2. **(A)** - Run **(as root)** with *ntasks* *nnodes*:
 ``` bash
 sudo ./test_ossched_deadline 1000 4
 ```
