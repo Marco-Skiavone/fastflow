@@ -16,28 +16,29 @@
 
 #define N_PROCESSORS (sysconf(_SC_NPROCESSORS_ONLN))
 
-/** Wrapper function to set a mask of cpu(s) affinity for a process.
- * @param pid The pid of the process to modify. If 0, the calling thread will be passed.
- * @param mask The cpu_set_t param used to set the affinity. See man cpu_set for details
+
+/** Wrapper function to get the scheduling attributes of a thread.
+ * @param tid the tid of the Thread to check
+ * @param ret the sched_attr structure reference into which to return the Thread attributes.
  * @returns 0 - For success \\
- * @returns Otherwise - The error returned by the syscall sched_setaffinity() */
-int set_sched_affinity(pid_t pid, cpu_set_t * mask) {
+ * @returns Otherwise - The error returned by the syscall `SYS_sched_getattr` */
+int get_sched_attributes(pid_t tid, struct sched_attr * ret) {
     int res = 0;
-    if ((res = sched_setaffinity(pid, sizeof(cpu_set_t), mask)))
-        perror("set_sched_affinity");
+    if ((res = syscall(SYS_sched_getattr, tid, ((struct sched_attr *)ret), sizeof(struct sched_attr), 0))) {
+        perror("get_sched_attributes");
+    }
     return res;
 }
 
 
-/** Function used to print the affinity mask of a process or thread. 
+/** Wrapper function to set a mask of cpu(s) affinity for a process.
  * @param pid The pid of the process to modify. If 0, the calling thread will be passed.
+ * @param mask The cpu_set_t param used to set the affinity. See man cpu_set for details
  * @returns 0 - For success \\
- * @returns Otherwise - The error returned by the syscall sched_setaffinity() */
-int print_sched_affinity(pid_t pid) {
+ * @returns Otherwise - The error returned by the syscall `sched_setaffinity()` */
+int set_sched_affinity(pid_t pid, cpu_set_t * mask) {
     int res = 0;
-    cpu_set_t mask;
-    CPU_ZERO(&mask);    // it clears the mask and let us write on it
-    if ((res = sched_getaffinity(pid, sizeof(cpu_set_t), &mask)))
+    if ((res = sched_setaffinity(pid, sizeof(cpu_set_t), mask)))
         perror("set_sched_affinity");
     return res;
 }
@@ -87,9 +88,7 @@ int set_scheduling_out(struct sched_attr * attr, size_t thread_id) {
         perror("set_scheduling_out: Error in set_sched_affinity");
     } else if ((result = syscall(SYS_sched_setattr, thread_id, attr, 0)) != 0) {
         perror("set_scheduling_out: Error in syscall");
-        print_sched_affinity(thread_id);
     }
-    print_sched_affinity(thread_id);
     return result;
 }
 

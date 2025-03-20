@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cmath>
 #include <string>
 #include <sstream>
 #include <thread>
@@ -26,7 +27,13 @@ using namespace ff;
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
 /** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
-#define RUNTIME_OFFSET(x) ((x) / 20)
+#define RUNTIME_OFFSET(x) (floor((x) / 20.0))
+
+/** Used to set a limit on how much a runtime value can grow */
+#define MAX_RUNTIME_OFFSET(x, y) (2 * (unsigned long)((float)x / y))
+
+/** Used to set a limit on how much a runtime value can decrease */
+#define MIN_RUNTIME_OFFSET(x, y) (unsigned long)((float)x / y / 2)
 
 std::barrier bar{2};
 std::atomic_bool managerstop{false};
@@ -48,7 +55,7 @@ void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime)
     
     if (set_scheduling_out(&attr, ff_getThreadID()))
         std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
-    print_thread_attributes(ff_getThreadID());
+    //print_thread_attributes(ff_getThreadID());
 }
 
 struct Source: ff_node_t<long> {
@@ -119,9 +126,10 @@ struct Sink: ff_node_t<long> {
     const size_t period_deadline;
 };
 
-void manager(ff_pipeline& pipe, size_t n_threads) {
+void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     size_t i;
 	std::stringstream buffer_log;	// Creating a string stream to prepare output
+    struct sched_attr attr;
     struct timespec waiter, ts;
     waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
     
@@ -131,8 +139,11 @@ void manager(ff_pipeline& pipe, size_t n_threads) {
     const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
 	svector<ff_node*> in_s[nodes.size() - 1];      // out nodes
 	size_t lengths[nodes.size() - 1];              // lengths
-    size_t runtimes_table[nodes.size() - 1];       // runtime_table, updated if set
-    for (i = 0; i < nodes.size() - 1; lengths[i] = 0, runtimes_table[i++] = 0);
+    size_t rt_table[nodes.size() - 1];       // runtime_table, updated if set
+    for (i = 0; i < nodes.size() - 1; ++i) {
+        lengths[i] = 0;
+        rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
+    }
 
     // getting out nodes
     for (i = 0; i < (nodes.size() - 1); ++i) {
@@ -150,19 +161,30 @@ void manager(ff_pipeline& pipe, size_t n_threads) {
             lengths[i] = in_s[i][0]->get_out_buffer()->length();    // 1st node in output requires "[0]"
         }
         
-        /** svector<size_t> diff(nodes.size() - 1);
-         * for (int i = 1; i < size; ++i) {
-         *     diff[i] = len [i+1] - len[i]
-         *     if (diff[i] < min_diff) {
-         *         min_diff = diff[i]
-         *         min_i = i
-         *     }
-         *     // max uguale
-         * }
-         * setattr(max, -X runtime); // 1 ventesimo del runtime iniziale - PER INIZIARE! (FAI PROVE)
-         * setattr(min, +X runtime);
-         * // aggiorno tabellina con tutti i runtime
-         */
+        size_t diff[nodes.size() - 1];
+        size_t min_diff = SIZE_MAX, max_diff = 0, min_i = SIZE_MAX, max_i = SIZE_MAX; 
+        for (i = 1; i < nodes.size() - 1; ++i) {
+            diff[i] = lengths[i-1] > lengths[i] ? (lengths[i-1] - lengths[i]) : (lengths[i] - lengths[i-1]);
+            if (diff[i] < min_diff) {
+                min_diff = diff[i];
+                min_i = i;
+            }
+            if (diff[i] > max_diff) {
+                max_diff = diff[i];
+                max_i = i;
+            }
+        }
+        if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX
+            && rt_table[max_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads) && rt_table[min_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads)
+            && rt_table[max_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads) && rt_table[min_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads)) {
+            
+            set_deadline_attr(n_threads, period_deadline, rt_table[max_i] - RUNTIME_OFFSET(rt_table[max_i]));
+            set_deadline_attr(n_threads, period_deadline, rt_table[min_i] + RUNTIME_OFFSET(rt_table[min_i]));
+            // modify runtime values stored in "table"
+            rt_table[max_i] -= RUNTIME_OFFSET(rt_table[max_i]);
+            rt_table[min_i] += RUNTIME_OFFSET(rt_table[min_i]);
+            // std::printf("#DEB: runtime decrease for %ld and increased for %ld\n", max_i, min_i); // DEBUG
+        }
         
         // just printing (for CSV)
         for(size_t i = 0; i < (nodes.size() - 1); ++i)
@@ -220,7 +242,7 @@ int main(int argc, char* argv[]) {
 	// pipe.setXNodeInputQueueLength(10, true);
 	
 	// thread manager launch
-	std::thread th(manager, std::ref(pipe), nnodes + 2);
+	std::thread th(manager, std::ref(pipe), nnodes + 2, period_deadline);
 	
 	// pipe execution
     if (pipe.run_and_wait_end() < 0) {
