@@ -153,9 +153,9 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 	while(!managerstop) {
         nanosleep(&waiter, NULL);
         clock_gettime(CLOCK_TYPE, &ts);
-        // TODO adjust nano secs (divide by 10e9) 
-        buffer_log << (double(ts.tv_sec) + ts.tv_nsec / 10e9);
-        
+        // TODO adjust nano secs (divide by 10e9 ?) 
+        buffer_log << ts.tv_sec << '.' << ts.tv_nsec;
+
         // reading lengths
         for (i = 0; i < (nodes.size() - 1); ++i) {
             lengths[i] = in_s[i][0]->get_out_buffer()->length();    // 1st node in output requires "[0]"
