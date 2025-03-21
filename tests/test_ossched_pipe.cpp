@@ -27,13 +27,21 @@ using namespace ff;
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
 /** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
-#define RUNTIME_OFFSET(x) (floor((x) / 20.0))
+#define RUNTIME_OFFSET(x) ((x) / 20)
 
 /** Used to set a limit on how much a runtime value can grow */
-#define MAX_RUNTIME_OFFSET(x, y) (2 * (unsigned long)((float)x / y))
+#define MAX_RUNTIME_OFFSET(x, y) (2 * (x) / (y))
 
 /** Used to set a limit on how much a runtime value can decrease */
-#define MIN_RUNTIME_OFFSET(x, y) (unsigned long)((float)x / y / 2)
+#define MIN_RUNTIME_OFFSET(x, y) ((x) / (y) / 2)
+
+/** Record used to save a log line in memory. Pointers will need dynamic allocation. */
+typedef struct mng_record {
+    timespec abs_time;
+    timespec rel_time;
+    size_t * out;   /* it will need dynamic allocation for # of nodes */
+    size_t * runtime;
+} mng_record;
 
 std::barrier bar{2};
 std::atomic_bool managerstop{false};
@@ -51,11 +59,10 @@ void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime)
     attr.sched_policy = SCHED_DEADLINE;
     attr.sched_deadline = period_deadline;  // default: 1M
     attr.sched_period   = period_deadline;  // default: 1M
-    attr.sched_runtime = runtime != 0 ? runtime : (unsigned long)((float)period_deadline / n_threads);
+    attr.sched_runtime = runtime != 0 ? runtime : (unsigned long)(period_deadline / n_threads);
     
     if (set_scheduling_out(&attr, ff_getThreadID()))
         std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
-    //print_thread_attributes(ff_getThreadID());
 }
 
 struct Source: ff_node_t<long> {
@@ -137,28 +144,30 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 	std::cout << "manager started" << std::endl;
         
     const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
-	svector<ff_node*> in_s[nodes.size() - 1];      // out nodes
+	FFBUFFER * in_s[nodes.size() - 1];      // out buffers
 	size_t lengths[nodes.size() - 1];              // lengths
     size_t rt_table[nodes.size() - 1];       // runtime_table, updated if set
     for (i = 0; i < nodes.size() - 1; ++i) {
-        lengths[i] = 0;
         rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
     }
 
     // getting out nodes in in_s[] array
     for (i = 0; i < (nodes.size() - 1); ++i) {
-        nodes[i]->get_out_nodes(in_s[i]);
+        svector<ff_node*> in;
+        nodes[i]->get_out_nodes(in);
+        in_s[i] = in[0]->get_out_buffer();  
     }
+    // ^^^ we made "[0]" to retrieve 1st node in output list
     
 	while(!managerstop) {
         nanosleep(&waiter, NULL);
         clock_gettime(CLOCK_TYPE, &ts);
-        // TODO adjust nano secs (divide by 10e9 ?) 
-        buffer_log << ts.tv_sec << '.' << ts.tv_nsec;
+        buffer_log << ts.tv_sec << '.' << ts.tv_nsec << ", " 
+            << (ts.tv_sec - start_time.tv_sec) << '.' << (ts.tv_nsec - start_time.tv_nsec);
 
         // reading lengths
         for (i = 0; i < (nodes.size() - 1); ++i) {
-            lengths[i] = in_s[i][0]->get_out_buffer()->length();    // 1st node in output requires "[0]"
+            lengths[i] = in_s[i]->length();
         }
         
         size_t diff[nodes.size() - 1];
@@ -183,10 +192,9 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             // modify runtime values stored in "table"
             rt_table[max_i] -= RUNTIME_OFFSET(rt_table[max_i]);
             rt_table[min_i] += RUNTIME_OFFSET(rt_table[min_i]);
-            // std::printf("#DEB: runtime decrease for %ld and increased for %ld\n", max_i, min_i); // DEBUG
         }
         
-        // just printing (for CSV)
+        // just printing (for CSV) -> become memo setting
         for(size_t i = 0; i < (nodes.size() - 1); ++i)
             buffer_log << ", " << lengths[i];
         buffer_log << '\n';
@@ -198,9 +206,9 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << "TIME\t";
+            oFile << "abs_time,\t\t\trel_time";
             for (i = 0; i < nodes.size() - 1; ++i)
-                oFile << "\t\t" << i;
+                oFile << ",\t\t" << i;
             oFile << std::endl;
             oFile << buffer_log.str() << std::endl;   // writing the output on file
             buffer_log.clear();
