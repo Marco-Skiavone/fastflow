@@ -55,24 +55,17 @@ std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
 
+/** Used to have an approximation of the simulation lasting time.
+ * @param tasks The `ntasks` passed to the simulation
+ * @param nodes The `nnodes` passed to the simulation (in the interval [1, 6])
+ * @returns a double with the estimated time */
 double estimated_time(size_t tasks, unsigned int nodes);
 
 /** Used to wrap the setting of the sched_attr in a function, used by all elements of this test.
  * @param n_threads number of threads in the current simulation (Emitter and Collector included) 
  * @param period_deadline value to set as `period` and `deadline` of the sched attr
  * @param runtime the runtime value to set. If 0, it will be set as `period_deadline/n_threads` */
-void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime) {
-    struct sched_attr attr = {0};
-    attr.size = sizeof(struct sched_attr);
-    attr.sched_flags = 0;
-    attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_deadline = period_deadline;  // default: 1M
-    attr.sched_period   = period_deadline;  // default: 1M
-    attr.sched_runtime = runtime != 0 ? runtime : (unsigned long)(period_deadline / n_threads);
-    
-    if (set_scheduling_out(&attr, ff_getThreadID()))
-        std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
-}
+void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime);
 
 struct Source: ff_node_t<long> {
     Source(const int ntasks, size_t n_threads, size_t period_deadline): ntasks(ntasks) , n_threads(n_threads), period_deadline(period_deadline) {}
@@ -149,24 +142,38 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     struct sched_attr attr;
     struct timespec waiter, ts;
     waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
+    
+    // Assigning a memory size of 20 secs of simulation (a LOT of time) divided by the interval (1 ms)
+    size_t n_memory_records = (20 / (waiter.tv_nsec / 1e9));    // TODO: find a better way to do this!
+    // NOTE: n_threads is (nnodes + 2)!
+    // size_t n_memory_records = (estimated_time(ntasks, n_threads - 2) / (waiter.tv_nsec / 1e9));    // TODO: find a better way to do this!
+    const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
 
-    // assigning a memory size of 20 secs of simulation (a LOT of time) divided by the interval (0.001)
-    size_t n_memory_records = (20 / (waiter.tv_nsec / 1e9));
     mng_record * mem_buffer = (mng_record *) malloc (sizeof(mng_record) * n_memory_records);
+    if (mem_buffer == NULL) {
+        std::cerr << "Error in the malloc call!" << std::endl;
+        bar.arrive_and_wait();              // START of simulation!
+        waiter.tv_nsec = 0; waiter.tv_sec = 1;
+        while(!managerstop) {
+            nanosleep(&waiter, NULL);
+        }
+        return;
+    }
     
     for (i = 0; i < n_memory_records - 1; ++i) {
         mem_buffer[i].out = (size_t *) malloc (sizeof(size_t) * (n_threads-1));
         mem_buffer[i].runtime = (size_t *)malloc (sizeof(size_t) * (n_threads-1));
     }
+    
+	FFBUFFER * in_s[n_threads - 1];      // out buffers
+    size_t lengths[n_threads - 1];       // lengths of out queues
+    size_t rt_table[n_threads - 1];       // runtime_table, updated if set
 
-	bar.arrive_and_wait();
+	bar.arrive_and_wait();              // START of simulation!
 	std::cout << "manager started" << std::endl;
     
     const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
-	std::cout << "nodes: " << nodes.size()-1 << ", threads: " << n_threads << std::endl;
-    
-	FFBUFFER * in_s[nodes.size() - 1];      // out buffers
-    size_t rt_table[nodes.size() - 1];       // runtime_table, updated if set
+
     for (i = 0; i < nodes.size() - 1; ++i) {
         mem_buffer[0].runtime[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
     }
@@ -178,7 +185,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         in_s[i] = in[0]->get_out_buffer();  
     }
     // ^^^ we made "[0]" to retrieve 1st node in output list
-    int times = 0;
+
 	while(!managerstop) {
         nanosleep(&waiter, NULL);
         clock_gettime(CLOCK_TYPE, &ts);
@@ -245,13 +252,13 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             for (i = 0; i < n_memory_records; ++i) {
 
             }
-            oFile << buffer_log.str() << std::endl;   // writing the output on file
-            buffer_log.clear();
         } else {
             fprintf(stderr, "Output file in manager gave error!");
         }
         oFile.close();
     }
+    
+    // memory free
     if (mem_buffer != NULL) {
         for (i = 0; i < n_memory_records; ++i) {
             if (mem_buffer[i].out != NULL)
@@ -302,12 +309,10 @@ int main(int argc, char* argv[]) {
         return -1;
     }	
 
-	std::cout << "pipe done" << std::endl;	
 	th.join();		// it makes the main thread to wait for th
 	std::cout << "manager closed" << std::endl;
     double tot_time = diff_timespec(&end_time, &start_time);
     std::cout << "Time used: " << tot_time << "s" << std::endl;
-    //std::cout << "correlation: " << CORRELATION(ntasks, nnodes) << std::endl;
     std::cout << "Estimated time= " << estimated_time(ntasks, nnodes) << std::endl;
 
     // writing on file
@@ -321,6 +326,19 @@ int main(int argc, char* argv[]) {
         oFile.close();
     }
 	return 0;
+}
+
+void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime) {
+    struct sched_attr attr = {0};
+    attr.size = sizeof(struct sched_attr);
+    attr.sched_flags = 0;
+    attr.sched_policy = SCHED_DEADLINE;
+    attr.sched_deadline = period_deadline;  // default: 1M
+    attr.sched_period   = period_deadline;  // default: 1M
+    attr.sched_runtime = runtime != 0 ? runtime : (unsigned long)(period_deadline / n_threads);
+    
+    if (set_scheduling_out(&attr, ff_getThreadID()))
+        std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
 }
 
 double estimated_time(size_t tasks, unsigned int nodes) {
