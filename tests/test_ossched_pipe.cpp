@@ -137,8 +137,7 @@ struct Sink: ff_node_t<long> {
 
 void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     bool memory_has_space = true, warned = false;
-    size_t i;
-	std::stringstream buffer_log;	// Creating a string stream to prepare output
+    size_t i, times = 0;
     struct sched_attr attr;
     struct timespec waiter, ts;
     waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
@@ -161,8 +160,8 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     }
     
     for (i = 0; i < n_memory_records - 1; ++i) {
-        mem_buffer[i].out = (size_t *) malloc (sizeof(size_t) * (n_threads-1));
-        mem_buffer[i].runtime = (size_t *)malloc (sizeof(size_t) * (n_threads-1));
+        mem_buffer[i].out = (size_t *) malloc (record_arr_size);
+        mem_buffer[i].runtime = (size_t *) malloc (record_arr_size);
     }
     
 	FFBUFFER * in_s[n_threads - 1];      // out buffers
@@ -175,7 +174,8 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
 
     for (i = 0; i < nodes.size() - 1; ++i) {
-        mem_buffer[0].runtime[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
+        rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
+        mem_buffer[0].runtime[i] = rt_table[i];
     }
 
     // getting out nodes in in_s[] array
@@ -189,7 +189,8 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 	while(!managerstop) {
         nanosleep(&waiter, NULL);
         clock_gettime(CLOCK_TYPE, &ts);
-        memory_has_space = times >= n_memory_records;
+        memory_has_space = times < n_memory_records;    // CONDITION to see if we can add on memory
+
         if (memory_has_space) {
             // At the end of loop, we will do: 
             // ts.tv_sec + (ts.tv_nsec / 1e9) 
@@ -206,14 +207,14 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 
         // reading lengths
         for (i = 0; i < (nodes.size() - 1); ++i) {
-            mem_buffer[times].out[i] = in_s[i]->length();
+            lengths[i] = in_s[i]->length();
         }
         
         size_t diff[nodes.size() - 1];
         size_t min_diff = SIZE_MAX, max_diff = 0, min_i = SIZE_MAX, max_i = SIZE_MAX; 
         for (i = 1; i < nodes.size() - 1; ++i) {
-            diff[i] = mem_buffer[times].out[i-1] > mem_buffer[times].out[i] ? 
-            (mem_buffer[times].out[i-1] - mem_buffer[times].out[i]) : (mem_buffer[times].out[i] - mem_buffer[times].out[i-1]);
+            diff[i] = lengths[i-1] > lengths[i] ? 
+            (lengths[i-1] - lengths[i]) : (lengths[i] - lengths[i-1]);
             if (diff[i] < min_diff) {
                 min_diff = diff[i];
                 min_i = i;
@@ -224,16 +225,22 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             }
         }
         if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX
-            && mem_buffer[times].runtime[max_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads) && mem_buffer[times].runtime[min_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads)
-            && mem_buffer[times].runtime[max_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads) && mem_buffer[times].runtime[min_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads)) {
+            && rt_table[max_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads) && rt_table[min_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads)
+            && rt_table[max_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads) && rt_table[min_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads)) {
             
-            set_deadline_attr(n_threads, period_deadline, mem_buffer[times].runtime[max_i] - RUNTIME_OFFSET(mem_buffer[times].runtime[max_i]));
-            set_deadline_attr(n_threads, period_deadline, mem_buffer[times].runtime[min_i] + RUNTIME_OFFSET(mem_buffer[times].runtime[min_i]));
+            set_deadline_attr(n_threads, period_deadline, rt_table[max_i] - RUNTIME_OFFSET(rt_table[max_i]));
+            set_deadline_attr(n_threads, period_deadline, rt_table[min_i] + RUNTIME_OFFSET(rt_table[min_i]));
             // modify runtime values stored in "table"
-            mem_buffer[times].runtime[max_i] -= RUNTIME_OFFSET(mem_buffer[times].runtime[max_i]);
-            mem_buffer[times].runtime[min_i] += RUNTIME_OFFSET(mem_buffer[times].runtime[min_i]);
+            rt_table[max_i] -= RUNTIME_OFFSET(rt_table[max_i]);
+            rt_table[min_i] += RUNTIME_OFFSET(rt_table[min_i]);
         }
-        times++;
+        if (memory_has_space) {
+            for (i = 0; i < n_threads-1; ++i) {
+                mem_buffer[times].out[i] = lengths[i];
+                mem_buffer[times].runtime[i] = rt_table[i];
+            }
+        }
+        ++times;
 	}
 
     std::cout << "-----\nmanager completed:" << std::endl;
@@ -242,15 +249,26 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << "abs_time,\t\trel_time";
-            for (i = 0; i < nodes.size() - 1; ++i)
-                oFile << ",\t" << i;
-            for (i = 0; i < nodes.size() - 1; ++i)
-                oFile << ",\truntime_" << i;
+            //std::oFile::setf(std::ios_base::fixed, std::ios_base::floatfield);
+            //std::ofstream::precision(15);
+
+            oFile << "abs_time, rel_time";
+            for (i = 0; i < nodes.size() - 1; ++i) { oFile << ", node_#" << i; }
+            for (i = 0; i < nodes.size() - 1; ++i) { oFile << ", runtime_#" << i; }
             oFile << std::endl;
             
-            for (i = 0; i < n_memory_records; ++i) {
-
+            size_t j;
+            std::cout << "size array: " << n_threads-1 << std::endl;
+            for (i = 0; i < times; ++i) {
+                // abs and rel times
+                oFile << (mem_buffer[i].abs_time.tv_sec + mem_buffer[i].abs_time.tv_nsec / 1e9) << "," 
+                    << (mem_buffer[i].rel_time.tv_sec + mem_buffer[i].rel_time.tv_nsec / 1e9);
+                
+                // out queues
+                for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].out[j]; }
+                // runtimes
+                for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].runtime[j]; }
+                oFile << std::endl;
             }
         } else {
             fprintf(stderr, "Output file in manager gave error!");
