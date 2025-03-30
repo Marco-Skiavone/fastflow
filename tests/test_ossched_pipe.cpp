@@ -342,35 +342,41 @@ void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime)
 }
 
 double estimated_time(size_t tasks, unsigned int nodes) {
-    double a = 0.0, b = 0.0, c = 0.0;
+    double a = 0.0, b = 0.0, c = 0.0, res;
     switch (nodes) {
         case 1:
             a = -1.59191582e-14;
             b = 1.77235389e-06;
             c = -2.29503749e-03;
-            return a * pow(tasks, 2) + b * tasks + c;
+            res = a * pow(tasks, 2) + b * tasks + c;
+            return res < 2 ? res : res * 1.2;
         case 5:
             a = 6.25694484e-13;
             b = 9.54211949e-06;
             c = 9.05242235e-02;
-            return a * pow(tasks, 2) + b * tasks + c;
+            res = a * pow(tasks, 2) + b * tasks + c;
+            return res < 2 ? res : res * 1.2;
         case 6:
             a = -9.45730754e-13;
             b = 1.59905464e-05;
             c = -1.08243978e-01;
-            return a * pow(tasks, 2) + b * tasks + c;
+            res = a * pow(tasks, 2) + b * tasks + c;
+            return res < 2 ? res : res * 1.2;
         case 2: 
             a = 2.55215384e-06;
             b = 1.19909262e-03;
-            return a * tasks + b;
+            res = a * tasks + b;
+            return res < 5 ? res * 1.6 : res;
         case 3:
             a = 5.38947333e-06;
             b = -5.48761504e-02;
-            return a * tasks + b;
+            res = a * tasks + b;
+            return res < 5 ? res * 1.4 : res;
         case 4:
             a = 7.16414760e-06;
             b = 5.64360384e-03;
-            return a * tasks + b;
+            res = a * tasks + b;
+            return res < 5 ? res * 1.5 : res;
         default:
             std::cerr << "Estimated time returned max time found until now, could not retrieve data beacuse nodes=" << nodes << std::endl;
             return 29.2344;
