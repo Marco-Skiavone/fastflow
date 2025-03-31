@@ -143,15 +143,15 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
     
     // Assigning a memory size of 20 secs of simulation (a LOT of time) divided by the interval (1 ms)
-    size_t n_memory_records = (20 / (waiter.tv_nsec / 1e9));    // TODO: find a better way to do this!
+    size_t n_memory_records = (20 / (waiter.tv_nsec / 1e9));
     // NOTE: n_threads is (nnodes + 2)!
-    // size_t n_memory_records = (estimated_time(ntasks, n_threads - 2) / (waiter.tv_nsec / 1e9));    // TODO: find a better way to do this!
+    // size_t n_memory_records = (estimated_time(ntasks, n_threads - 2) / (waiter.tv_nsec / 1e9));
     const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
 
     mng_record * mem_buffer = (mng_record *) malloc (sizeof(mng_record) * n_memory_records);
     if (mem_buffer == NULL) {
         std::cerr << "Error in the malloc call!" << std::endl;
-        bar.arrive_and_wait();              // START of simulation!
+        bar.arrive_and_wait();              // To START the simulation!
         waiter.tv_nsec = 0; waiter.tv_sec = 1;
         while(!managerstop) {
             nanosleep(&waiter, NULL);
@@ -192,16 +192,13 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         memory_has_space = times < n_memory_records;    // CONDITION to see if we can add on memory
 
         if (memory_has_space) {
-            // At the end of loop, we will do: 
-            // ts.tv_sec + (ts.tv_nsec / 1e9) 
-            // (ts.tv_sec - start_time.tv_sec) + (ts.tv_nsec - start_time.tv_nsec) / 1e9
             mem_buffer[times].abs_time.tv_sec = ts.tv_sec;
             mem_buffer[times].abs_time.tv_nsec = ts.tv_nsec;
             mem_buffer[times].rel_time.tv_sec = ts.tv_sec - start_time.tv_sec;
-            mem_buffer[times].rel_time.tv_sec = ts.tv_nsec - start_time.tv_nsec;
+            mem_buffer[times].rel_time.tv_nsec = ts.tv_nsec - start_time.tv_nsec;
         } else if (!warned) {
             warned = true;
-            std::cerr << "### Warning! ### Memory ended up after " << ((ts.tv_sec - start_time.tv_sec) + (ts.tv_nsec - start_time.tv_nsec) / 1e9)
+            std::cerr << "### Warning! ### Memory ended up after " << ((ts.tv_sec - start_time.tv_sec) + ((ts.tv_nsec - start_time.tv_nsec) / 1e9))
                 << "s from the start. End of data collection." << std::endl;
         }
 
@@ -249,21 +246,16 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            //std::oFile::setf(std::ios_base::fixed, std::ios_base::floatfield);
-            //std::ofstream::precision(15);
-
             oFile << "abs_time, rel_time";
             for (i = 0; i < nodes.size() - 1; ++i) { oFile << ", node_#" << i; }
             for (i = 0; i < nodes.size() - 1; ++i) { oFile << ", runtime_#" << i; }
-            oFile << std::endl;
+            oFile << '\n';
             
             size_t j;
-            std::cout << "size array: " << n_threads-1 << std::endl;
             for (i = 0; i < times; ++i) {
                 // abs and rel times
                 oFile << (mem_buffer[i].abs_time.tv_sec + mem_buffer[i].abs_time.tv_nsec / 1e9) << "," 
-                    << (mem_buffer[i].rel_time.tv_sec + mem_buffer[i].rel_time.tv_nsec / 1e9);
-                
+                    << (mem_buffer[i].rel_time.tv_sec + (mem_buffer[i].rel_time.tv_nsec / 1e9));
                 // out queues
                 for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].out[j]; }
                 // runtimes
@@ -379,7 +371,7 @@ double estimated_time(size_t tasks, unsigned int nodes) {
             b = 1.59905464e-05;
             c = -1.08243978e-01;
             res = a * pow(tasks, 2) + b * tasks + c;
-            return res < 2 ? res : res * 1.2;
+            return res < 1 ? res : res * 1.2;
         case 2: 
             a = 2.55215384e-06;
             b = 1.19909262e-03;
