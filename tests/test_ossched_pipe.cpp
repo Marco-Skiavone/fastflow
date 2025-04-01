@@ -27,16 +27,15 @@ using namespace ff;
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
 /** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
-#define RUNTIME_OFFSET(x) ((x) / 20)
+#define RUNTIME_FRACTION (20)
+
+#define BANDWIDTH_MIN 0.01
 
 /** Used to set a limit on how much a runtime value can grow */
 #define MAX_RUNTIME_OFFSET(x, y) (2 * (x) / (y))
 
 /** Used to set a limit on how much a runtime value can decrease */
 #define MIN_RUNTIME_OFFSET(x, y) ((x) / (y) / 2)
-
-/** Returns the correlation factor for the simulation time prediction (which is always more than the effective time). Where x is `ntasks` and y is `nnodes`. */
-#define CORRELATION(x, y) (-0.04623932559474933 + (0.8803206078010386 * x) + (0.3345441925050733 * y))
 
 /** Record used to save a log line in memory. Pointers will need dynamic allocation. Defined as:
  * - timespec abs_time;
@@ -186,15 +185,19 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     }
     // ^^^ we made "[0]" to retrieve 1st node in output list
 
-	while(!managerstop) {
+    long diff[nodes.size() - 1]; // get out declarations- con segno
+    const long runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
+    const long runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
+    const long runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
+	while(!managerstop) {   // and memory has space
         nanosleep(&waiter, NULL);
-        clock_gettime(CLOCK_TYPE, &ts);
+        clock_gettime(CLOCK_TYPE, &ts); // on abs
         memory_has_space = times < n_memory_records;    // CONDITION to see if we can add on memory
 
         if (memory_has_space) {
             mem_buffer[times].abs_time.tv_sec = ts.tv_sec;
             mem_buffer[times].abs_time.tv_nsec = ts.tv_nsec;
-            mem_buffer[times].rel_time.tv_sec = ts.tv_sec - start_time.tv_sec;
+            mem_buffer[times].rel_time.tv_sec = ts.tv_sec - start_time.tv_sec;  // at the end
             mem_buffer[times].rel_time.tv_nsec = ts.tv_nsec - start_time.tv_nsec;
         } else if (!warned) {
             warned = true;
@@ -207,11 +210,9 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             lengths[i] = in_s[i]->length();
         }
         
-        size_t diff[nodes.size() - 1];
-        size_t min_diff = SIZE_MAX, max_diff = 0, min_i = SIZE_MAX, max_i = SIZE_MAX; 
+        long min_diff = SIZE_MAX, max_diff = -SIZE_MAX, min_i = -1, max_i = -1; 
         for (i = 1; i < nodes.size() - 1; ++i) {
-            diff[i] = lengths[i-1] > lengths[i] ? 
-            (lengths[i-1] - lengths[i]) : (lengths[i] - lengths[i-1]);
+            diff[i] = lengths[i] - lengths[i-1];
             if (diff[i] < min_diff) {
                 min_diff = diff[i];
                 min_i = i;
@@ -221,15 +222,14 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
                 max_i = i;
             }
         }
-        if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX
-            && rt_table[max_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads) && rt_table[min_i] < MAX_RUNTIME_OFFSET(period_deadline, n_threads)
-            && rt_table[max_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads) && rt_table[min_i] > MIN_RUNTIME_OFFSET(period_deadline, n_threads)) {
-            
-            set_deadline_attr(n_threads, period_deadline, rt_table[max_i] - RUNTIME_OFFSET(rt_table[max_i]));
-            set_deadline_attr(n_threads, period_deadline, rt_table[min_i] + RUNTIME_OFFSET(rt_table[min_i]));
+        if (max_i != min_i && max_i != -1 && min_i != -1
+            && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
+                
+            rt_table[max_i] -= runtime_offset;
+            rt_table[min_i] += runtime_offset;
+            set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
+            set_deadline_attr(n_threads, period_deadline, rt_table[min_i]);
             // modify runtime values stored in "table"
-            rt_table[max_i] -= RUNTIME_OFFSET(rt_table[max_i]);
-            rt_table[min_i] += RUNTIME_OFFSET(rt_table[min_i]);
         }
         if (memory_has_space) {
             for (i = 0; i < n_threads-1; ++i) {
