@@ -326,7 +326,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Estimated time= " << estimated_time(ntasks, nnodes) << std::endl;
 
     // writing on file
-    std::ofstream oFile("times.csv", std::ios_base::app);
+    std::ofstream oFile("times2.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << ntasks << ", " << nnodes << ", " << tot_time << std::endl;

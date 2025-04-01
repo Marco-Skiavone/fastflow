@@ -11,22 +11,25 @@
 
 <br>
 
+### Objective:
+To see whether simply scheduling the threads on cpus can make the library faster or not.
+
 ### Thesis Target:
 Define a module to centralize the management of a scheduling policy for the Building Blocks (BB). Firstly, we are focusing on **pipelines** and **farms**.
 <br>
 
 ### Current Task:
-Create a *manager* that can retrieve all the info about a farm or a pipe.<br>
-> **Reminder:**<br>Pipe, farm and a2a have different inputs and outputs. I will work with pipelines, for now.
+Create a *manager* that can retrieve all the info about a pipe.<br>
+> **Reminder:**<br>Pipe, farm and a2a have different inputs and outputs. I will work on pipelines, for now.
 
 ---
 
 ### Updates:
 Testing if we can move usage time from a node to another. It seems to work.
 - Firstly, we added a clock (`CLOCK_MONOTONIC_RAW`) to see time before and after the simulation
-- Then we output to a stream, to avoid a slowdown due to printing statements.
+- Then we output to a stream, to avoid a slowdown due to printing statements.   // ---> moved to an **allocated memory**!
 - We calculate the differences between *in* and *out* of the nodes, to change the runtime values.
-- Finally we print to a .csv file (`out.csv`) the stream buffer.
+- Finally we print to a .csv file (`out.csv`) the stream buffer. // ---> the mapped memory*  
 
 > **Note:**<br>
 > The file `tests/test_ossched_pipeOLD.cpp` runs the simulation **without attribute adjustments**.<br> 
@@ -54,21 +57,5 @@ Testing if we can move usage time from a node to another. It seems to work.
 
 2. Run **(as root)** with *ntasks* *nnodes* and *period/runtimes* (default: 1000 3 1M)
 ``` bash
-sudo ./test_ossched_pipe 1000 6 10000000
-```
-
-### How to run a SCHED_DEADLINE test
-At the beginning of the internship, the purpose of this file was to understand how to set up the desired scheduling policy (`SCHED_DEADLINE`).
-
-1. Compile:
-``` bash
-make test_ossched_deadline
-```
-2. **(A)** - Run **(as root)** with *ntasks* *nnodes*:
-``` bash
-sudo ./test_ossched_deadline 1000 4
-```
-2. **(B)** - Optional run **(as root)**, adding *runtime* and *period*:
-``` bash
-sudo ./test_ossched_deadline 1000 4 50000 100000
+sudo ./test_ossched_pipe 10000 6 10000000
 ```
