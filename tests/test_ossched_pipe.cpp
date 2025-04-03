@@ -201,9 +201,10 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
     const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
 
-    long min_diff, max_diff, min_i, max_i; 
+    long min_diff;
+    size_t min_i, sum;
 
-	while(!managerstop && times < n_memory_records) {   // and memory has space
+	while(!managerstop && times < n_memory_records) {
         nanosleep(&waiter, NULL);
         clock_gettime(CLOCK_TYPE, &mem_buffer[times].abs_time);
 
@@ -212,23 +213,25 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             lengths[i] = in_s[i]->length();
         }
         
-        min_diff = SIZE_MAX; max_diff = -SIZE_MAX; min_i = -1; max_i = -1; 
+        min_diff = SIZE_MAX; min_i = SIZE_MAX; 
         for (i = 1; i < n_threads - 1; ++i) {
             diff[i] = lengths[i] - lengths[i-1];
             if (diff[i] < min_diff) {
                 min_diff = diff[i];
                 min_i = i;
             }
-            if (diff[i] > max_diff) {
-                max_diff = diff[i];
-                max_i = i;
-            }
         }
 
-        if (max_i != min_i && max_i != -1 && min_i != -1 && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
-            rt_table[max_i] -= runtime_offset;
-            rt_table[min_i] += runtime_offset;
-            set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
+        if (min_i != SIZE_MAX && rt_table[min_i] <= runtime_max) {
+            sum = 0;
+            for (i = 1; i < n_threads-1; ++i) {
+                if (i != min_i && rt_table[i] >= runtime_min) {
+                    sum += runtime_offset;
+                    rt_table[i] -= runtime_offset;
+                    set_deadline_attr(n_threads, period_deadline, rt_table[i]);
+                }
+            }
+            rt_table[min_i] += ((rt_table[min_i]+sum <= runtime_max+runtime_offset) ? sum : runtime_offset);
             set_deadline_attr(n_threads, period_deadline, rt_table[min_i]);
         }
 
@@ -245,7 +248,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             << "s from the start. End of data collection." << std::endl;
     }
 
-    std::cout << "-----\nmanager completed:" << std::endl;
+    std::cout << "manager completed.\n-----" << std::endl;
     
     // writing on file
     std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
@@ -331,7 +334,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Estimated time= " << estimated_time(ntasks, nnodes) << std::endl;
 
     // writing on file
-    std::ofstream oFile("times2.csv", std::ios_base::app);
+    std::ofstream oFile("times3.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << ntasks << ", " << nnodes << ", " << tot_time << std::endl;
