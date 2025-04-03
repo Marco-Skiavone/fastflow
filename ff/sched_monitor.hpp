@@ -99,7 +99,7 @@ int set_scheduling_out(struct sched_attr * attr, size_t thread_id) {
  */
 double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
   return (time1->tv_sec - time0->tv_sec)
-      + (time1->tv_nsec - time0->tv_nsec) / 1000000000.0;
+      + (time1->tv_nsec - time0->tv_nsec) / 1e9;
 }
 
 #endif

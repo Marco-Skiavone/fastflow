@@ -478,8 +478,10 @@ tests/test_ossched_pipe
 tests/test_ossched_pipeOLD
 tests/test_ossched_farm 
 tests/test_ossched_deadline
+tests/test_battery_launcher
 
 tests/out.txt
-tests/out.csv
+tests/out*.csv
+tests/times*.csv
 
 # End of https://www.gitignore.io/api/c,c++,eclipse,emacs,vim,cmake,autotools,macos,linux,windows

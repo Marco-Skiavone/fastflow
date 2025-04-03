@@ -118,25 +118,57 @@ struct Sink: ff_node_t<long> {
 };
 
 void manager(ff_pipeline& pipe, size_t n_threads) {
+    size_t i;
 	std::stringstream buffer_log;	// Creating a string stream to prepare output
+    struct timespec ts, waiter;
+    waiter.tv_nsec = 1000000; // 1M
+    waiter.tv_sec = 0;
 	bar.arrive_and_wait();
 	std::cout << "manager started" << std::endl;
-	
+    
 	const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
-	while(!managerstop) {
-        struct timespec ts;
-        ts.tv_nsec = 1000000; // 1M
-        ts.tv_sec = 0;
-        nanosleep(&ts, NULL);
+    FFBUFFER * in_s[nodes.size() - 1];      // out buffers
+    size_t lengths[nodes.size() - 1];       // lengths
+
+    // getting out nodes in in_s[] array
+    for (i = 0; i < (nodes.size() - 1); ++i) {
         svector<ff_node*> in;
-		for(size_t i = 0; i < (nodes.size() - 1); ++i) {
-            nodes[i]->get_out_nodes(in);
-			buffer_log << "node " << i+1 << ": qlen=" << in[0]->get_out_buffer()->length() << "\n";
-		}
-		buffer_log << "-----\n";
+        nodes[i]->get_out_nodes(in);
+        in_s[i] = in[0]->get_out_buffer();  
+    }
+    // ^^^ we made "[0]" to retrieve 1st node in output list
+	
+	while(!managerstop) {
+        nanosleep(&waiter, NULL);
+        clock_gettime(CLOCK_TYPE, &ts);
+        buffer_log << ts.tv_sec << '.' << ts.tv_nsec << ", " 
+            << (ts.tv_sec - start_time.tv_sec) << '.' << (ts.tv_nsec - start_time.tv_nsec);
+
+        for (i = 0; i < nodes.size() - 1; ++i)
+            lengths[i] = in_s[i]->length();
+
+		// just printing (for CSV) -> become memo setting
+        for(size_t i = 0; i < (nodes.size() - 1); ++i)
+            buffer_log << ", " << lengths[i];
+        buffer_log << '\n';
 	}
-	std::cout << "-----\nmanager completed:" << std::endl;
-	std::cout << buffer_log.str() << std::endl;   // printing the output all at once
+    std::cout << "-----\nmanager completed:" << std::endl;
+    
+    // writing on file
+    std::ofstream oFile("outOLD.csv", std::ios_base::out | std::ios_base::trunc);
+    if (oFile.is_open()) {
+        if (oFile.good()) {
+            oFile << "abs_time,\t\t\trel_time";
+            for (i = 0; i < nodes.size() - 1; ++i)
+                oFile << ",\t\t" << i;
+            oFile << std::endl;
+            oFile << buffer_log.str() << std::endl;   // writing the output on file
+            buffer_log.clear();
+        } else {
+            fprintf(stderr, "Output file in manager gave error!");
+        }
+        oFile.close();
+    }
 }
 
 int main(int argc, char* argv[]) {
