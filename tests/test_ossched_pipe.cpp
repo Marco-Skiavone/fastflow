@@ -39,12 +39,10 @@ using namespace ff;
 
 /** Record used to save a log line in memory. Pointers will need dynamic allocation. Defined as:
  * - timespec abs_time;
- * - timespec rel_time;
  * - size_t * out;
  * - size_t * runtime; */
 typedef struct _mng_record {
     timespec abs_time;
-    timespec rel_time;
     size_t * out;   /* it will need dynamic allocation for # of nodes */
     size_t * runtime;
 } mng_record;
@@ -135,44 +133,57 @@ struct Sink: ff_node_t<long> {
 };
 
 void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
-    bool memory_has_space = true, warned = false;
+    // NOTE: n_threads is (nnodes + 2)!
     size_t i, times = 0;
     struct sched_attr attr;
-    struct timespec waiter, ts;
+    struct timespec waiter;
     waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
     
     // Assigning a memory size of 20 secs of simulation (a LOT of time) divided by the interval (1 ms)
     size_t n_memory_records = (20 / (waiter.tv_nsec / 1e9));
-    // NOTE: n_threads is (nnodes + 2)!
-    // size_t n_memory_records = (estimated_time(ntasks, n_threads - 2) / (waiter.tv_nsec / 1e9));
+    // size_t n_memory_records = ((estimated_time(ntasks, n_threads - 2) * 1.5) / (waiter.tv_nsec / 1e9));
     const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
 
     mng_record * mem_buffer = (mng_record *) malloc (sizeof(mng_record) * n_memory_records);
     if (mem_buffer == NULL) {
-        std::cerr << "Error in the malloc call!" << std::endl;
+        std::cerr << "Error in the MANAGER malloc(1) call!" << std::endl;
         bar.arrive_and_wait();              // To START the simulation!
-        waiter.tv_nsec = 0; waiter.tv_sec = 1;
-        while(!managerstop) {
-            nanosleep(&waiter, NULL);
-        }
         return;
     }
     
     for (i = 0; i < n_memory_records - 1; ++i) {
         mem_buffer[i].out = (size_t *) malloc (record_arr_size);
         mem_buffer[i].runtime = (size_t *) malloc (record_arr_size);
+
+        if (mem_buffer[i].out == NULL || mem_buffer[i].runtime == NULL) {
+            std::cerr << "Error in the MANAGER malloc(2) call!" << std::endl;
+            bar.arrive_and_wait();              // To START the simulation!
+    
+            if (mem_buffer != NULL) {
+                for (size_t j = 0; j < i; ++j) {
+                    if (mem_buffer[j].out != NULL)
+                        free(mem_buffer[j].out);
+                    if (mem_buffer[j].runtime != NULL)
+                        free(mem_buffer[j].runtime);
+                }
+                free(mem_buffer);
+            }
+            return;
+        }
     }
     
+    // n_thread == nodes.size()
 	FFBUFFER * in_s[n_threads - 1];      // out buffers
     size_t lengths[n_threads - 1];       // lengths of out queues
-    size_t rt_table[n_threads - 1];       // runtime_table, updated if set
+    size_t rt_table[n_threads - 1];      // runtime_table, updated if set
 
-	bar.arrive_and_wait();              // START of simulation!
+    // <<<------- START Simulation ------->>>
+	bar.arrive_and_wait();
 	std::cout << "manager started" << std::endl;
     
     const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
 
-    for (i = 0; i < nodes.size() - 1; ++i) {
+    for (i = 0; i < n_threads - 1; ++i) {
         rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
         mem_buffer[0].runtime[i] = rt_table[i];
     }
@@ -185,33 +196,24 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     }
     // ^^^ we made "[0]" to retrieve 1st node in output list
 
-    long diff[nodes.size() - 1]; // get out declarations- con segno
-    const long runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
-    const long runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
-    const long runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
-	while(!managerstop) {   // and memory has space
-        nanosleep(&waiter, NULL);
-        clock_gettime(CLOCK_TYPE, &ts); // on abs
-        memory_has_space = times < n_memory_records;    // CONDITION to see if we can add on memory
+    long diff[n_threads - 1]; // signed
+    const size_t runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
+    const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
+    const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
 
-        if (memory_has_space) {
-            mem_buffer[times].abs_time.tv_sec = ts.tv_sec;
-            mem_buffer[times].abs_time.tv_nsec = ts.tv_nsec;
-            mem_buffer[times].rel_time.tv_sec = ts.tv_sec - start_time.tv_sec;  // at the end
-            mem_buffer[times].rel_time.tv_nsec = ts.tv_nsec - start_time.tv_nsec;
-        } else if (!warned) {
-            warned = true;
-            std::cerr << "### Warning! ### Memory ended up after " << ((ts.tv_sec - start_time.tv_sec) + ((ts.tv_nsec - start_time.tv_nsec) / 1e9))
-                << "s from the start. End of data collection." << std::endl;
-        }
+    long min_diff, max_diff, min_i, max_i; 
+
+	while(!managerstop && times < n_memory_records) {   // and memory has space
+        nanosleep(&waiter, NULL);
+        clock_gettime(CLOCK_TYPE, &mem_buffer[times].abs_time);
 
         // reading lengths
-        for (i = 0; i < (nodes.size() - 1); ++i) {
+        for (i = 0; i < (n_threads - 1); ++i) {
             lengths[i] = in_s[i]->length();
         }
         
-        long min_diff = SIZE_MAX, max_diff = -SIZE_MAX, min_i = -1, max_i = -1; 
-        for (i = 1; i < nodes.size() - 1; ++i) {
+        min_diff = SIZE_MAX; max_diff = -SIZE_MAX; min_i = -1; max_i = -1; 
+        for (i = 1; i < n_threads - 1; ++i) {
             diff[i] = lengths[i] - lengths[i-1];
             if (diff[i] < min_diff) {
                 min_diff = diff[i];
@@ -222,23 +224,26 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
                 max_i = i;
             }
         }
-        if (max_i != min_i && max_i != -1 && min_i != -1
-            && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
-                
+
+        if (max_i != min_i && max_i != -1 && min_i != -1 && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
             rt_table[max_i] -= runtime_offset;
             rt_table[min_i] += runtime_offset;
             set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
             set_deadline_attr(n_threads, period_deadline, rt_table[min_i]);
-            // modify runtime values stored in "table"
         }
-        if (memory_has_space) {
-            for (i = 0; i < n_threads-1; ++i) {
-                mem_buffer[times].out[i] = lengths[i];
-                mem_buffer[times].runtime[i] = rt_table[i];
-            }
+
+        for (i = 0; i < n_threads-1; ++i) {
+            mem_buffer[times].out[i] = lengths[i];
+            mem_buffer[times].runtime[i] = rt_table[i];
         }
         ++times;
 	}
+
+    if (times >= n_memory_records) {
+        std::cerr << "### Warning! ### Memory ended up after " << 
+            ((mem_buffer[n_memory_records-1].abs_time.tv_sec - start_time.tv_sec) + ((mem_buffer[n_memory_records-1].abs_time.tv_nsec - start_time.tv_nsec) / 1e9))
+            << "s from the start. End of data collection." << std::endl;
+    }
 
     std::cout << "-----\nmanager completed:" << std::endl;
     
@@ -246,16 +251,16 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << "abs_time, rel_time";
-            for (i = 0; i < nodes.size() - 1; ++i) { oFile << ", node_#" << i; }
-            for (i = 0; i < nodes.size() - 1; ++i) { oFile << ", runtime_#" << i; }
+            oFile << "abs_time,rel_time";
+            for (i = 0; i < n_threads - 1; ++i) { oFile << ",node_#" << i; }
+            for (i = 0; i < n_threads - 1; ++i) { oFile << ",runtime_#" << i; }
             oFile << '\n';
             
             size_t j;
             for (i = 0; i < times; ++i) {
                 // abs and rel times
                 oFile << (mem_buffer[i].abs_time.tv_sec + mem_buffer[i].abs_time.tv_nsec / 1e9) << "," 
-                    << (mem_buffer[i].rel_time.tv_sec + (mem_buffer[i].rel_time.tv_nsec / 1e9));
+                    << ((mem_buffer[i].abs_time.tv_sec - start_time.tv_sec) + ((mem_buffer[i].abs_time.tv_nsec - start_time.tv_nsec) / 1e9));
                 // out queues
                 for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].out[j]; }
                 // runtimes
