@@ -213,7 +213,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             lengths[i] = in_s[i]->length();
         }
         
-        min_diff = SIZE_MAX; min_i = SIZE_MAX; 
+        min_diff = LONG_MAX; min_i = SIZE_MAX;
         for (i = 1; i < n_threads - 1; ++i) {
             diff[i] = lengths[i] - lengths[i-1];
             if (diff[i] < min_diff) {
@@ -251,7 +251,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::cout << "manager completed.\n-----" << std::endl;
     
     // writing on file
-    std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
+    std::ofstream oFile("outV2.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << "abs_time,rel_time";
@@ -334,8 +334,8 @@ int main(int argc, char* argv[]) {
     std::cout << "Estimated time= " << estimated_time(ntasks, nnodes) << std::endl;
 
     // writing on file
-    std::ofstream oFile("times3.csv", std::ios_base::app);
-    if (oFile.is_open()) {
+    std::ofstream oFile("timesV2.csv", std::ios_base::app);
+    if (oFile.is_open()) {  
         if (oFile.good()) {
             oFile << ntasks << ", " << nnodes << ", " << tot_time << std::endl;
         } else {
