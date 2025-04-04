@@ -194,14 +194,14 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         nodes[i]->get_out_nodes(in);
         in_s[i] = in[0]->get_out_buffer();  
     }
-    // ^^^ we made "[0]" to retrieve 1st node in output list
 
-    long diff[n_threads - 1]; // signed
+    long diff[n_threads - 1];
     const size_t runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
     const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
     const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
 
-    long min_diff, max_diff, min_i, max_i; 
+    long min_diff = LONG_MAX;
+    size_t min_i, decr_i = 1;
 
 	while(!managerstop && times < n_memory_records) {   // and memory has space
         nanosleep(&waiter, NULL);
@@ -212,26 +212,23 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             lengths[i] = in_s[i]->length();
         }
         
-        min_diff = SIZE_MAX; max_diff = -SIZE_MAX; min_i = -1; max_i = -1; 
+        min_i = SIZE_MAX; 
         for (i = 1; i < n_threads - 1; ++i) {
             diff[i] = lengths[i] - lengths[i-1];
             if (diff[i] < min_diff) {
                 min_diff = diff[i];
                 min_i = i;
             }
-            if (diff[i] > max_diff) {
-                max_diff = diff[i];
-                max_i = i;
-            }
         }
 
-        if (max_i != min_i && max_i != -1 && min_i != -1 && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
-            rt_table[max_i] -= runtime_offset;
+        if (decr_i != min_i && min_i != SIZE_MAX && rt_table[decr_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
+            rt_table[decr_i] -= runtime_offset;
             rt_table[min_i] += runtime_offset;
-            set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
+            set_deadline_attr(n_threads, period_deadline, rt_table[decr_i]);
             set_deadline_attr(n_threads, period_deadline, rt_table[min_i]);
         }
-
+        if (++decr_i >= n_threads-1)    // circular iteration, but 0 is excluded
+            decr_i = 1;
         for (i = 0; i < n_threads-1; ++i) {
             mem_buffer[times].out[i] = lengths[i];
             mem_buffer[times].runtime[i] = rt_table[i];
@@ -245,10 +242,10 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             << "s from the start. End of data collection." << std::endl;
     }
 
-    std::cout << "-----\nmanager completed:" << std::endl;
+    std::cout << "manager completed.\n-----" << std::endl;
     
     // writing on file
-    std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
+    std::ofstream oFile("outV3.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << "abs_time,rel_time";
@@ -331,7 +328,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Estimated time= " << estimated_time(ntasks, nnodes) << std::endl;
 
     // writing on file
-    std::ofstream oFile("times2.csv", std::ios_base::app);
+    std::ofstream oFile("times3.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << ntasks << ", " << nnodes << ", " << tot_time << std::endl;
