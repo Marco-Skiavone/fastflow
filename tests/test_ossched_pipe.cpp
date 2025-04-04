@@ -201,7 +201,8 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
     const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
 
-    long min_diff, max_diff, min_i, max_i; 
+    long min_diff, max_diff;
+    size_t min_i, max_i; 
 
 	while(!managerstop && times < n_memory_records) {   // and memory has space
         nanosleep(&waiter, NULL);
@@ -212,7 +213,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             lengths[i] = in_s[i]->length();
         }
         
-        min_diff = SIZE_MAX; max_diff = -SIZE_MAX; min_i = -1; max_i = -1; 
+        min_diff = LONG_MAX; max_diff = -LONG_MAX; min_i = SIZE_MAX; max_i = SIZE_MAX; 
         for (i = 1; i < n_threads - 1; ++i) {
             diff[i] = lengths[i] - lengths[i-1];
             if (diff[i] < min_diff) {
@@ -225,7 +226,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             }
         }
 
-        if (max_i != min_i && max_i != -1 && min_i != -1 && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
+        if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
             rt_table[max_i] -= runtime_offset;
             rt_table[min_i] += runtime_offset;
             set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
@@ -331,7 +332,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Estimated time= " << estimated_time(ntasks, nnodes) << std::endl;
 
     // writing on file
-    std::ofstream oFile("times2.csv", std::ios_base::app);
+    std::ofstream oFile("times1.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << ntasks << ", " << nnodes << ", " << tot_time << std::endl;
