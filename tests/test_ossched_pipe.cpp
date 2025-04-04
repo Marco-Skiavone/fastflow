@@ -122,9 +122,8 @@ struct Sink: ff_node_t<long> {
 	void svc_end() {
 		if (clock_gettime(CLOCK_TYPE, &end_time))
             std::cerr << "ERROR in [end] clock_gettime!" << std::endl;
-
+        managerstop = true;
 		std::cout << "Sink finished" << std::endl;
-		managerstop = true;
 	}
 
     size_t counter = 0;
