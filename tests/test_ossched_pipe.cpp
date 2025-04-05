@@ -73,7 +73,6 @@ struct Source: ff_node_t<long> {
 
 		if (clock_gettime(CLOCK_TYPE, &start_time))
             std::cerr << "ERROR in [start] clock_gettime!" << std::endl;
-
 		return 0;
 	}
 	long* svc(long*) {
@@ -122,9 +121,8 @@ struct Sink: ff_node_t<long> {
 	void svc_end() {
 		if (clock_gettime(CLOCK_TYPE, &end_time))
             std::cerr << "ERROR in [end] clock_gettime!" << std::endl;
-
-		std::cout << "Sink finished" << std::endl;
-		managerstop = true;
+        managerstop = true;
+        std::cout << "Sink finished" << std::endl;
 	}
 
     size_t counter = 0;
