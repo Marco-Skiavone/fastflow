@@ -249,7 +249,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::cout << "-----\nmanager completed:" << std::endl;
     
     // writing on file
-    std::ofstream oFile("out.csv", std::ios_base::out | std::ios_base::trunc);
+    std::ofstream oFile("outV1.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << "abs_time,rel_time";
