@@ -1,53 +1,46 @@
-#include <string>
+/* This test has been written by Marco Schiavone during an internship, supervised by the Professor Enrico Bini. */
+/** **************************************************************
+ * The current test tries to set a deadline scheduling policy on threads, at the creation of a pipeline.
+ * We are making use of a 3 different structs to set a custom pipeline.
+ * 
+ *  Source ---> Stage#1 ---> ... ---> Stage#<nnodes> ---> Sink 
+ * 
+ * @note the `svc()` method is the one called when the simulation starts. 
+ * The `svc_init()` and the `svc_end()` are used to set up or clean up something for the test purpose.
+ */
+/** @author: Marco Schiavone */
+
 #include <iostream>
+#include <string>
+#include <sstream>
 #include <thread>
 #include <barrier>
 #include <atomic>
 #include <chrono>
 
 #if !defined(FF_INITIAL_BARRIER)
-    // to run this test we need to be sure that the initial barrier is executed
+    // to run this test we need to be sure that the initial barrier is executed (it should sync all the threads)
     #define FF_INITIAL_BARRIER
 #endif
 
-#if !defined(TRACE_FASTFLOW)
-    #define TRACE_FASTFLOW
-#endif
+// Following define let us use some tracing functions about the nodes (see the manager to track them)
+#define TRACE_FASTFLOW
 
 #include <ff/ff.hpp>
 using namespace ff;
 
 /**
- * CLOCK_PROCESS_CPUTIME_ID (since Linux 2.6.12)
+ * CLOCK_PROCESS_CPUTIME_ID
  *   This  is  a clock that measures CPU time consumed by this process (i.e., CPU time consumed by all threads in the process).
- * CLOCK_THREAD_CPUTIME_ID (since Linux 2.6.12)
+ * CLOCK_THREAD_CPUTIME_ID
  *   This is a clock that measures CPU time consumed by this thread.  
  */
 #define CLOCK_TYPE (CLOCK_PROCESS_CPUTIME_ID)
-// Really do not know how to procede with clock type setting, what should we register ?
 
 std::barrier bar{2};
 std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
-
-/** Used to wrap the setting of the sched_attr in a function, used by all elements of this test.
- * @param n_threads number of threads in the current simulation (Emitter and Collector included). 
- * @param period_deadline value to set as `period` and `deadline` of the sched attr. 
- * @note The `runtime` attribute will be derived by the other two as . */
-void set_deadline_attr(size_t n_threads, size_t period_deadline) {
-    struct sched_attr attr = {0};
-    attr.size = sizeof(struct sched_attr);
-    attr.sched_flags = 0;
-    attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_deadline = period_deadline;  // default: 1M
-    attr.sched_period   = period_deadline;  // default: 1M
-    attr.sched_runtime = (long long unsigned int)((float)period_deadline / n_threads);
-    
-    if (set_scheduling_out(&attr, ff_getThreadID()))
-        fprintf(stderr, "Error: %s (%s) - (line %d)\n", strerror(errno), strerrorname_np(errno), __LINE__);
-    print_thread_attributes(ff_getThreadID());
-}
 
 
 struct Source: ff_node_t<long> {
@@ -59,7 +52,7 @@ struct Source: ff_node_t<long> {
 		// EB2MS: si dovrebbe impostare sched_setattr qui con PID=0 (me stesso) per TUTTI i thread
 		// parametri budget/deadline/period di default divisi equamente fra gli n_threads
 		// ovvero budget proporzionale a 1/n_threads
-        set_deadline_attr(n_threads, period_deadline);
+        set_deadline_attr(n_threads, period_deadline, 0);
 
         // --- End of schedule setting ---
 		bar.arrive_and_wait();        
@@ -86,7 +79,7 @@ struct Stage: ff_node_t<long> {
 	Stage(long workload, size_t n_threads, size_t period_deadline): workload(workload), n_threads(n_threads), period_deadline(period_deadline) {}
 
     int svc_init() {
-        set_deadline_attr(n_threads, period_deadline);
+        set_deadline_attr(n_threads, period_deadline, 0);
         return 0;
     }
   
@@ -104,7 +97,7 @@ struct Sink: ff_node_t<long> {
     Sink(size_t n_threads, size_t period_deadline): n_threads(n_threads), period_deadline(period_deadline) {}
 
     int svc_init() {
-        set_deadline_attr(n_threads, period_deadline);
+        set_deadline_attr(n_threads, period_deadline, 0);
         return 0;
     }
 
@@ -118,8 +111,8 @@ struct Sink: ff_node_t<long> {
 		// EB2MS: qui prendere il tempo finale e fare differenza con tempo iniziale
         if (clock_gettime(CLOCK_TYPE, &end_time))
             fprintf(stderr, "ERROR in [end] clock_gettime()!\n");
+        managerstop = true;
 		std::printf("Sink finished\n");
-		managerstop = true;
 	}
 
     size_t counter = 0;
@@ -128,6 +121,10 @@ struct Sink: ff_node_t<long> {
 };
 
 void manager(ff_farm& farm) {
+    size_t i;
+    std::stringstream str_buf;
+    timespec waiter;
+    waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
     // EB2MS: il manager dovrebbe soltanto SPOSTARE CPU bandwidth da un thread all'altro, mantenendo una tabellina sugli spostamenti
 	bar.arrive_and_wait();
 	std::printf("manager started\n");
@@ -136,17 +133,18 @@ void manager(ff_farm& farm) {
 	ff_farm::lb_t * lb = farm.getlb();
 	ff_farm::gt_t * gt = farm.getgt();
 
-    std::printf("-------\n");
+    str_buf << "-------\n";
 	while(!managerstop) {
-        std::printf("lb: completed_tasks:%ld\n", lb->getnumtask());
-        for(size_t i = 0; i < nodes.size(); ++i) {
+        nanosleep(&waiter, NULL);
+        str_buf << "lb: completed_tasks:" << lb->getnumtask() << "\n";
+        for(i = 0; i < nodes.size(); ++i) {
             // has access to the counter of completed tasks. Enabled by TRACE_FASTFLOW variables 
-            std::printf("node%ld completed_tasks:%ld\n", i + 1, nodes[i]->getnumtask());    
-		    }
-        std::printf("gt: completed_tasks:%ld\n", gt->getnumtask());
-		std::printf("-------\n");
+            str_buf << "node" << (i+1) << ": completed_tasks:" << nodes[i]->getnumtask() << '\n';    
+		}
+        str_buf << "gt: completed_tasks:" << gt->getnumtask() << "\n-------\n";
 	}
-	std::printf("manager completed\n");
+    std::cout << str_buf.str() << std::endl;
+	std::cout << "manager completed" << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -196,14 +194,13 @@ int main(int argc, char* argv[]) {
     }
 
     // Time measurement
-    std::cout << "Time used: " << diff_timespec(&end_time, &start_time) << " s \n";
-
-    std::cerr << "DONE, time= " << farm.ffTime() << " (ms)\n";
+    std::cout << "Time used: " << diff_timespec(end_time, start_time) << " s \n";
+    std::cerr << "Done in " << farm.ffTime() << " (ms)\n";
     std::cerr << "--------\n";
 
     //farm.ffStats(std::cout);  // It prints out some stats about the farm, for emitter, collector and every worker 
 	
-	th.join();	// it should make the main thread to wait for th termination
+	th.join();	// It makes the main thread to wait for the manager termination
 	std::printf("manager done\n");
 	return 0;
 }

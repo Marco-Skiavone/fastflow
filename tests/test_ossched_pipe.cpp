@@ -1,3 +1,21 @@
+/* This test has been written by Marco Schiavone during an internship, supervised by the Professor Enrico Bini. */
+/** **************************************************************
+ * The current test tries to handle the deadline scheduling policy on pipeline threads AT RUNTIME.
+ * A manager handles the runtime stages and sets a different runtime, also creating a ".csv" file 
+ * at the end of the simulation. 
+ * 
+ * We are making use of a 3 different structs to set a custom pipeline.
+ * 
+ *  Source ---> Stage#1 ---> ... ---> Stage#<nnodes> ---> Sink 
+ *    ^            ^          |            ^               ^
+ *    |            |          |            |               |
+ *    +------------+------ manager --------+---------------+
+ * 
+ * @note the `svc()` method is the one called when the simulation starts. 
+ * The `svc_init()` and the `svc_end()` are used to set up or clean up something for the test purpose.
+ */
+/** @author: Marco Schiavone */
+
 #include <iostream>
 #include <cmath>
 #include <string>
@@ -8,13 +26,12 @@
 #include <chrono>
 
 #if !defined(FF_INITIAL_BARRIER)
-    // to run this test we need to be sure that the initial barrier is executed
+    // to run this test we need to be sure that the initial barrier is executed (it should sync all the threads)
     #define FF_INITIAL_BARRIER
 #endif
 
-#if !defined(TRACE_FASTFLOW)
-    #define TRACE_FASTFLOW
-#endif
+/** Uncomment the following macro and recompile to see how the test behaves without scheduling setting at runtime. */
+// #define NO_SCHED_SETTING 1
 
 #include <ff/ff.hpp>
 using namespace ff;
@@ -23,12 +40,17 @@ using namespace ff;
  *   - CLOCK_MONOTONIC_RAW: 
  *      Similar to CLOCK_MONOTONIC, but provides access to a raw hardware-based 
  *      time that is not subject to frequency adjustments. 
- *      This clock does not count time that the system is suspended. */
+ *      This clock does not count time that the system is suspended.
+ *  
+ * @note This type of clock is currently a bad choice to have a clear idea of the performance. 
+ * Simply charging your laptop during the simulation may increase OR DECREASE the time registered.
+ * So better look up at something else, if you want to compare some performances based on time! */
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
 /** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
 #define RUNTIME_FRACTION (20)
 
+/** The minimun percentage of the period/deadline amount at which we will set the runtime to */
 #define BANDWIDTH_MIN 0.01
 
 /** Used to set a limit on how much a runtime value can grow */
@@ -51,18 +73,6 @@ std::barrier bar{2};
 std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
-
-/** Used to have an approximation of the simulation lasting time.
- * @param tasks The `ntasks` passed to the simulation
- * @param nodes The `nnodes` passed to the simulation (in the interval [1, 6])
- * @returns a double with the estimated time */
-double estimated_time(size_t tasks, unsigned int nodes);
-
-/** Used to wrap the setting of the sched_attr in a function, used by all elements of this test.
- * @param n_threads number of threads in the current simulation (Emitter and Collector included) 
- * @param period_deadline value to set as `period` and `deadline` of the sched attr
- * @param runtime the runtime value to set. If 0, it will be set as `period_deadline/n_threads` */
-void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime);
 
 struct Source: ff_node_t<long> {
     Source(const int ntasks, size_t n_threads, size_t period_deadline): ntasks(ntasks) , n_threads(n_threads), period_deadline(period_deadline) {}
@@ -88,6 +98,7 @@ struct Source: ff_node_t<long> {
     const size_t period_deadline;
 };
 
+/** The internal node of the pipeline. This can be referred to as a "worker" by the `ff` library. */
 struct Stage: ff_node_t<long> {
 	Stage(long workload, size_t n_threads, size_t period_deadline): workload(workload) , n_threads(n_threads), period_deadline(period_deadline) {}
 
@@ -105,6 +116,7 @@ struct Stage: ff_node_t<long> {
 	const size_t period_deadline;
 };
 
+/** The ending point of the pipeline. It collects payloads without getting out anything. */
 struct Sink: ff_node_t<long> {
 	Sink(size_t n_threads, size_t period_deadline): n_threads(n_threads), period_deadline(period_deadline) {}
 
@@ -139,7 +151,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     struct timespec waiter;
     waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
     
-    // Assigning a memory size of 20 secs of simulation (a LOT of time) divided by the interval (1 ms)
+    // Assigning a memory size of 20 secs of simulation (quite a LOT of time) divided by the interval
     size_t n_memory_records = (20 / (waiter.tv_nsec / 1e9));
     // size_t n_memory_records = ((estimated_time(ntasks, n_threads - 2) * 1.5) / (waiter.tv_nsec / 1e9));
     const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
@@ -176,6 +188,14 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 	FFBUFFER * in_s[n_threads - 1];      // out buffers
     size_t lengths[n_threads - 1];       // lengths of out queues
     size_t rt_table[n_threads - 1];      // runtime_table, updated if set
+    long diff[n_threads - 1];            // signed
+
+    const size_t runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
+    const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
+    const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
+
+    long min_diff, max_diff;
+    size_t min_i, max_i; 
 
     // <<<------- START Simulation ------->>>
 	bar.arrive_and_wait();
@@ -195,14 +215,6 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         in_s[i] = in[0]->get_out_buffer();  
     }
     // ^^^ we made "[0]" to retrieve 1st node in output list
-
-    long diff[n_threads - 1]; // signed
-    const size_t runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
-    const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
-    const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
-
-    long min_diff, max_diff;
-    size_t min_i, max_i; 
 
 	while(!managerstop && times < n_memory_records) {   // and memory has space
         nanosleep(&waiter, NULL);
@@ -229,8 +241,10 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
             rt_table[max_i] -= runtime_offset;
             rt_table[min_i] += runtime_offset;
+#ifndef NO_SCHED_SETTING
             set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
             set_deadline_attr(n_threads, period_deadline, rt_table[min_i]);
+#endif
         }
 
         for (i = 0; i < n_threads-1; ++i) {
@@ -316,85 +330,30 @@ int main(int argc, char* argv[]) {
 	// setta tutte le code a bounded di capacità 10
 	// pipe.setXNodeInputQueueLength(10, true);
 	
-	// thread manager launch
+	// Thread manager launch
 	std::thread th(manager, std::ref(pipe), nnodes + 2, period_deadline);
 	
-	// pipe execution
+	// pipe execution (and termination)
     if (pipe.run_and_wait_end() < 0) {
         error("running pipeline\n");
         return -1;
     }	
 
-	th.join();		// it makes the main thread to wait for th
+	th.join();		// This makes the main thread to wait for the manager
 	std::cout << "manager closed" << std::endl;
-    double tot_time = diff_timespec(&end_time, &start_time);
-    std::cout << "Time used: " << tot_time << "s" << std::endl;
-    std::cout << "Estimated time= " << estimated_time(ntasks, nnodes) << std::endl;
 
-    // writing on file
-    std::ofstream oFile("times1.csv", std::ios_base::app);
+    double tot_time = diff_timespec(end_time, start_time);
+    std::cout << "Time used: " << tot_time << "s" << std::endl;
+
+    // writing on a file to catch times in append, useful to make some future studies on times
+    std::ofstream oFile("timesV1.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << ntasks << ", " << nnodes << ", " << tot_time << std::endl;
+            oFile << ntasks << "," << nnodes << "," << tot_time << std::endl;
         } else {
-            fprintf(stderr, "Output file in main gave error!");
+            fprintf(stderr, "Output file in main gave error!\n");
         }
         oFile.close();
     }
 	return 0;
-}
-
-void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime) {
-    struct sched_attr attr = {0};
-    attr.size = sizeof(struct sched_attr);
-    attr.sched_flags = 0;
-    attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_deadline = period_deadline;  // default: 1M
-    attr.sched_period   = period_deadline;  // default: 1M
-    attr.sched_runtime = runtime != 0 ? runtime : (unsigned long)(period_deadline / n_threads);
-    
-    if (set_scheduling_out(&attr, ff_getThreadID()))
-        std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
-}
-
-double estimated_time(size_t tasks, unsigned int nodes) {
-    double a = 0.0, b = 0.0, c = 0.0, res;
-    switch (nodes) {
-        case 1:
-            a = -1.59191582e-14;
-            b = 1.77235389e-06;
-            c = -2.29503749e-03;
-            res = a * pow(tasks, 2) + b * tasks + c;
-            return res < 2 ? res : res * 1.2;
-        case 5:
-            a = 6.25694484e-13;
-            b = 9.54211949e-06;
-            c = 9.05242235e-02;
-            res = a * pow(tasks, 2) + b * tasks + c;
-            return res < 2 ? res : res * 1.2;
-        case 6:
-            a = -9.45730754e-13;
-            b = 1.59905464e-05;
-            c = -1.08243978e-01;
-            res = a * pow(tasks, 2) + b * tasks + c;
-            return res < 1 ? res : res * 1.2;
-        case 2: 
-            a = 2.55215384e-06;
-            b = 1.19909262e-03;
-            res = a * tasks + b;
-            return res < 5 ? res * 1.6 : res;
-        case 3:
-            a = 5.38947333e-06;
-            b = -5.48761504e-02;
-            res = a * tasks + b;
-            return res < 5 ? res * 1.4 : res;
-        case 4:
-            a = 7.16414760e-06;
-            b = 5.64360384e-03;
-            res = a * tasks + b;
-            return res < 5 ? res * 1.5 : res;
-        default:
-            std::cerr << "Estimated time returned max time found until now, could not retrieve data beacuse nodes=" << nodes << std::endl;
-            return 29.2344;
-    }
 }
