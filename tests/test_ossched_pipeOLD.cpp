@@ -162,23 +162,23 @@ void manager(ff_pipeline& pipe, size_t n_threads) {
 
 		// just printing (for CSV) -> become memo setting
         for(size_t i = 0; i < (nodes.size() - 1); ++i)
-            buffer_log << ", " << lengths[i];
+            buffer_log << "," << lengths[i];
         buffer_log << '\n';
 	}
-    std::cout << "-----\nmanager completed:" << std::endl;
+    std::cout << "-----\nmanager completed" << std::endl;
     
     // writing on file
     std::ofstream oFile("outOLD.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << "abs_time,\t\t\trel_time";
+            oFile << "abs_time,rel_time";
             for (i = 0; i < nodes.size() - 1; ++i)
-                oFile << ",\t\t" << i;
-            oFile << std::endl;
-            oFile << buffer_log.str() << std::endl;   // writing the output on file
+                oFile << "," << i;
+            oFile << '\n' << buffer_log.str() << std::endl;   // writing the output on file
             buffer_log.clear();
+            std::cout << "- Output saved on outOLD.csv" << std::endl;
         } else {
-            fprintf(stderr, "Output file in manager gave error!");
+            fprintf(stderr, "[ERROR] Output file in manager gave error!");
         }
         oFile.close();
     }
@@ -191,7 +191,7 @@ int main(int argc, char* argv[]) {
   
     if (argc > 1) {
         if (argc != 3) {
-            error("use: %s ntasks nnodes (period/deadline: optional)\n", argv[0]);
+            error("use: %s ntasks nnodes\n", argv[0]);
             return -1;
         } 
         ntasks = std::stol(argv[1]);
@@ -199,20 +199,24 @@ int main(int argc, char* argv[]) {
         if (nnodes > 6) nnodes = 6;
     }
 
+    // calling constructor (see test_ossched_pipe to see further implementation)
     Source first(ntasks);
     Sink last;
 
 	ff_pipeline pipe;
-	pipe.add_stage(&first);
+	pipe.add_stage(&first);             // add the source 
+    // adding the stages 
 	for(size_t i = 1; i <= nnodes; ++i)
 		pipe.add_stage(new Stage(2000 * i), true);
-	pipe.add_stage(&last);
+	pipe.add_stage(&last);              // add the sink
 
 	// set all queues with a bounded capacity of 10
 	// pipe.setXNodeInputQueueLength(10, true);
 	
 	// Thread manager start
 	std::thread th(manager, std::ref(pipe), nnodes + 2);
+    // NOTE: the total number of threads of the simulation is:
+    // 1 (Source) + nnodes (Stages) + 1 (Sink) + 1 (manager)
 	
 	// Pipe execution and termination
     if (pipe.run_and_wait_end() < 0) {
@@ -224,7 +228,7 @@ int main(int argc, char* argv[]) {
 
 	th.join();		            // It makes the main thread to wait for the manager termination
 	std::cout << "manager closed" << std::endl;
-
+    // Print the time difference between Source/svc_init() and Sink.svc_end() measurements
     std::cout << "Time used: " << diff_timespec(end_time, start_time) << " s" << std::endl;
 	return 0;
 }

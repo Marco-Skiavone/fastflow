@@ -195,8 +195,8 @@ int main(int argc, char* argv[]) {
 
     // Time measurement
     std::cout << "Time used: " << diff_timespec(end_time, start_time) << " s \n";
-    std::cerr << "Done in " << farm.ffTime() << " (ms)\n";
-    std::cerr << "--------\n";
+    std::cout << "Done in " << farm.ffTime() << " (ms)\n";
+    std::cout << "--------\n";
 
     //farm.ffStats(std::cout);  // It prints out some stats about the farm, for emitter, collector and every worker 
 	

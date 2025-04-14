@@ -190,9 +190,10 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     size_t rt_table[n_threads - 1];      // runtime_table, updated if set
     long diff[n_threads - 1];            // signed
 
+    // declaring runtime offset (to add or decrease) and limit bounce (max, min).
     const size_t runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
-    const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
     const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
+    const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
 
     long min_diff, max_diff;
     size_t min_i, max_i; 
@@ -203,6 +204,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     
     const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
 
+    // getting first runtimes through system calls
     for (i = 0; i < n_threads - 1; ++i) {
         rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
         mem_buffer[0].runtime[i] = rt_table[i];
@@ -238,9 +240,12 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             }
         }
 
+        // We remove from the one having max difference (has done a lot) 
+        // and giving to the one having the min (negative - it has greater input queue than output one)
         if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
             rt_table[max_i] -= runtime_offset;
             rt_table[min_i] += runtime_offset;
+            // if NO_SCHED_SETTING is defined, the syscalls will be NOT performed.
 #ifndef NO_SCHED_SETTING
             set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
             set_deadline_attr(n_threads, period_deadline, rt_table[min_i]);
@@ -260,7 +265,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             << "s from the start. End of data collection." << std::endl;
     }
 
-    std::cout << "-----\nmanager completed:" << std::endl;
+    std::cout << "-----\nmanager completed" << std::endl;
     
     // writing on file
     std::ofstream oFile("outV1.csv", std::ios_base::out | std::ios_base::trunc);
@@ -282,8 +287,9 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
                 for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].runtime[j]; }
                 oFile << std::endl;
             }
+            std::cout << "- Output saved on outV1.csv" << std::endl;
         } else {
-            fprintf(stderr, "Output file in manager gave error!");
+            fprintf(stderr, "[ERROR] Output file in manager gave error!");
         }
         oFile.close();
     }
@@ -350,8 +356,9 @@ int main(int argc, char* argv[]) {
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << ntasks << "," << nnodes << "," << tot_time << std::endl;
+            std::cout << "- Time saved on timesV1.csv" << std::endl;
         } else {
-            fprintf(stderr, "Output file in main gave error!\n");
+            fprintf(stderr, "[ERROR] Output file in main gave error!\n");
         }
         oFile.close();
     }

@@ -1,9 +1,9 @@
 /* This header file has been written by Marco Schiavone during an internship, supervised by the Professor Enrico Bini. */
 /** **************************************************************
- * The current header file offers a variety of functions to set a deadline scheduling policy on threads.
+ * The current header file offers a variety of functions to get and set a scheduling policy on threads.
  * This file is currently included by the ff/node.hpp and can be used for testing.
  * 
- * For all the functions wrapping system calls, the 0 is the default return value (success). Other
+ * @note For all the functions wrapping system calls, the 0 is the default return value (success).
  */
 /** @author: Marco Schiavone */
 #ifndef _SCHED_MONITORING_H
@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <time.h>
 
+// Used below to set a mask for cpu affinity
 #define N_PROCESSORS (sysconf(_SC_NPROCESSORS_ONLN))
 
 
@@ -53,13 +54,12 @@ int get_sched_attributes(pid_t tid, struct sched_attr * ret) {
 }
 
 
-/** Function used to print on `stderr` the attributes of a thread. 
+/** Function used to print the attributes of a thread. 
  * @param thread_id The TID of the calling thread. Usually stored in `ff/node.hpp`, it can be found with the `ff/node.getOSThreadID()` function.
  * @returns 0 - Success \\
  * @returns Otherwise - The error returned by the system call.
- * @note I preferred to use the thread_id already stored in the "ff/node.hpp" to avoid issues about it.
-*/
-int print_thread_attributes(size_t thread_id) {
+ * @note I preferred to use the thread_id already stored in the "ff/node.hpp" to avoid issues about it. */
+int print_thread_attributes(FILE * file_ptr, size_t thread_id) {
     struct sched_attr printable;
     int result = 0;
     if ((result = syscall(SYS_sched_getattr, thread_id, ((struct sched_attr *)&printable), sizeof(struct sched_attr), 0)) != 0) {
@@ -67,13 +67,12 @@ int print_thread_attributes(size_t thread_id) {
         return result;
     }
 
-    if (printable.sched_policy == 0) {
-        std::printf("Thread %ld={policy: %u, flags: %llu, nice: %u, priority: %u}\n", thread_id, printable.sched_policy, 
+    if (printable.sched_policy == 0) {  // Default scheduling policy
+        std::fprintf(file_ptr, "Thread %ld={policy: %u, flags: %llu, nice: %u, priority: %u}\n", thread_id, printable.sched_policy, 
             printable.sched_flags, printable.sched_nice, printable.sched_priority);
     } else {
-        std::printf("Thread %ld={policy: %u, flags: %llu, nice: %u, priority: %u, [RT: %llu, DL: %llu, period: %llu]}\n", thread_id,
-            printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority, 
-            printable.sched_runtime, printable.sched_deadline, printable.sched_period);
+        std::fprintf(file_ptr, "Thread %ld={policy: %u, flags: %llu, nice: %u, priority: %u, [RT: %llu, DL: %llu, period: %llu]}\n", thread_id,
+            printable.sched_policy, printable.sched_flags, printable.sched_nice, printable.sched_priority, printable.sched_runtime, printable.sched_deadline, printable.sched_period);
     }
     return result;
 }
