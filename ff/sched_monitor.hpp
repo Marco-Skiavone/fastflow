@@ -114,8 +114,9 @@ int set_scheduling_out(struct sched_attr * attr, size_t thread_id, bool set_affi
  * 
  * @param n_threads the TOTAL # of threads of the simulation. Used to define a simple runtime default value of (period_deadline/n_threads)
  * @param period_deadline value to set as `period` and `deadline` of the sched attr
- * @param runtime the runtime value to set. If 0, it will be set as `period_deadline/n_threads` */
- void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime) {
+ * @param runtime the runtime value to set. If 0, it will be set as `period_deadline/n_threads` 
+ * @param thread_id the thread id to which set the attr struct. */
+ void set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime, size_t thread_id) {
     struct sched_attr attr = {0};
     attr.size = sizeof(struct sched_attr);
     attr.sched_flags = 0;
@@ -125,7 +126,7 @@ int set_scheduling_out(struct sched_attr * attr, size_t thread_id, bool set_affi
     attr.sched_runtime = (runtime != 0 ? runtime : (unsigned long)(period_deadline / n_threads));
     
     // For the first settage of the deadline policy, you should call this function with runtime=0.
-    if (set_scheduling_out(&attr, ff_getThreadID(), runtime == 0))
+    if (set_scheduling_out(&attr, thread_id, runtime == 0))
         std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
 }
 
