@@ -152,7 +152,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
     
     // Assigning a memory size of 20 secs of simulation (quite a LOT of time) divided by the interval
-    size_t n_memory_records = (30 / (waiter.tv_nsec / 1e9));
+    size_t n_memory_records = (120 / (waiter.tv_nsec / 1e9));
     // size_t n_memory_records = ((estimated_time(ntasks, n_threads - 2) * 1.5) / (waiter.tv_nsec / 1e9));
     const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
 
