@@ -210,6 +210,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
         mem_buffer[0].runtime[i] = rt_table[i];
         node_tids[i] = nodes[i]->getOSThreadId();
+        printf("tid: %ld\n", node_tids[i]);
     }
 
     // getting out nodes in in_s[] array
@@ -251,7 +252,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         }
         // We remove from the one having max difference (has done a lot) 
         // and giving to the one having the min (negative - it has greater input queue than output one)
-        if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
+        if (!managerstop && max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
             rt_table[max_i] -= runtime_offset;
             rt_table[min_i] += runtime_offset;
             // if NO_SCHED_SETTING is defined, the syscalls will be NOT performed.
@@ -262,9 +263,10 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         }
 
         // Adding data retrieved to the memory
-        for (i = 0; i < n_threads-1; ++i) {
+        for (i = 0; i < n_threads-1 && !managerstop; ++i) {
             mem_buffer[times].out[i] = lengths[i];
-            mem_buffer[times].runtime[i] = rt_table[i];
+            printf("setting on %ld\n", node_tids[i]);
+            mem_buffer[times].runtime[i] = get_sched_attributes(node_tids[i], &attr) ? rt_table[i] : attr.sched_runtime;
         }
         ++times;
 	}
