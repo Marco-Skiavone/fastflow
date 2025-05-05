@@ -149,7 +149,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     size_t i, times = 0;
     struct sched_attr attr;
     struct timespec waiter;
-    waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
+    waiter.tv_nsec = 10000000; waiter.tv_sec = 0;
     
     // Assigning a memory size of 20 secs of simulation (quite a LOT of time) divided by the interval
     size_t n_memory_records = (120 / (waiter.tv_nsec / 1e9));
@@ -210,7 +210,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
         mem_buffer[0].runtime[i] = rt_table[i];
         node_tids[i] = nodes[i]->getOSThreadId();
-        printf("tid: %ld\n", node_tids[i]);
+        //printf("tid: %ld\n", node_tids[i]);
     }
 
     // getting out nodes in in_s[] array
@@ -233,7 +233,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             lengths[i] = in_s[i]->length();
         }
         if (managerstop) {
-            fprintf(stderr, "Received end of simulation during control\n");
+            fprintf(stderr, "Received end of simulation during control. Manager's quitting...\n");
             break;
         }
 
@@ -250,6 +250,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
                 max_i = i;
             }
         }
+        //fprintf(stderr, "%ld: max: %ld (%ld), min: %ld (%ld)\n", times, max_i, max_diff, min_i, min_diff);
         // We remove from the one having max difference (has done a lot) 
         // and giving to the one having the min (negative - it has greater input queue than output one)
         if (!managerstop && max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
@@ -257,16 +258,20 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
             rt_table[min_i] += runtime_offset;
             // if NO_SCHED_SETTING is defined, the syscalls will be NOT performed.
 #ifndef NO_SCHED_SETTING
-            set_deadline_attr(n_threads, period_deadline, rt_table[max_i], node_tids[max_i]);
-            set_deadline_attr(n_threads, period_deadline, rt_table[min_i], node_tids[min_i]);
+            if (set_deadline_attr(n_threads, period_deadline, rt_table[max_i], node_tids[max_i])) {
+                rt_table[max_i] += -runtime_offset;
+                rt_table[min_i] -= runtime_offset;
+            } else if (set_deadline_attr(n_threads, period_deadline, rt_table[min_i], node_tids[min_i]))
+                rt_table[min_i] -= runtime_offset;
 #endif
         }
 
         // Adding data retrieved to the memory
         for (i = 0; i < n_threads-1 && !managerstop; ++i) {
             mem_buffer[times].out[i] = lengths[i];
-            printf("setting on %ld\n", node_tids[i]);
-            mem_buffer[times].runtime[i] = get_sched_attributes(node_tids[i], &attr) ? rt_table[i] : attr.sched_runtime;
+            //printf("setting on %ld\n", node_tids[i]);
+            //mem_buffer[times].runtime[i] = get_sched_attributes(node_tids[i], &attr) ? rt_table[i] : attr.sched_runtime;
+            mem_buffer[times].runtime[i] = rt_table[i];
         }
         ++times;
 	}
