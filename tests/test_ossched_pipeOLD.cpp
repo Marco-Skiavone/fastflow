@@ -40,7 +40,7 @@ using namespace ff;
  * So better look up at something else, if you want to compare some performances based on time! */
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
-/** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
+/** Runtime OFFSET changer. */
 #define RUNTIME_FRACTION (20)
 
 /** The minimun percentage of the period/deadline amount at which we will set the runtime to */

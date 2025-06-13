@@ -47,7 +47,7 @@ using namespace ff;
  * So better look up at something else, if you want to compare some performances based on time! */
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
-/** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
+/** Runtime OFFSET changer. */
 #define RUNTIME_FRACTION (20)
 
 /** The minimun percentage of the period/deadline amount at which we will set the runtime to */
@@ -304,7 +304,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
                 for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].runtime[j]; }
                 oFile << std::endl;
             }
-            std::cout << "- Output saved on outV1.csv" << std::endl;
+            std::cout << "- Output saved on outV1.2.csv" << std::endl;
         } else {
             fprintf(stderr, "[ERROR] Output file in manager gave error!");
         }
@@ -372,7 +372,7 @@ int main(int argc, char* argv[]) {
     std::ofstream oFile("timesV1.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << ntasks << "," << nnodes << "," << tot_time << std::endl;
+            oFile << ntasks << "," << nnodes << "," << period_deadline << "," << RUNTIME_FRACTION << "," << tot_time << std::endl;
             std::cout << "- Time saved on timesV1.csv" << std::endl;
         } else {
             fprintf(stderr, "[ERROR] Output file in main gave error!\n");
