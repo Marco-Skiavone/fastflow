@@ -1,3 +1,18 @@
+/* This test has been written by Marco Schiavone during an internship, supervised by the Professor Enrico Bini. */
+/** **************************************************************
+ * The current test gives a starting line (thanking Massimo Torquati and Gabriele for their collaboartion)
+ * from which understand the library structure. Using a pipeline, we can use the override of methods to better specify the code. 
+ * Here we are making use of a 3 different structures to set a custom pipeline.
+ * 
+ *  Source ---> Stage ---> ... ---> Stage ---> Sink 
+ * 
+ * This test is still NOT setting the deadline scheduling policy.
+ * 
+ * @note the `svc()` method is the one called when the simulation starts. 
+ * The `svc_init()` and the `svc_end()` are used to set up or clean up something for the test purpose.
+ */
+/** @author: Marco Schiavone */
+
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -7,12 +22,8 @@
 #include <chrono>
 
 #if !defined(FF_INITIAL_BARRIER)
-    // to run this test we need to be sure that the initial barrier is executed
+    // to run this test we need to be sure that the initial barrier is executed (it should sync all the threads)
     #define FF_INITIAL_BARRIER
-#endif
-
-#if !defined(TRACE_FASTFLOW)
-    #define TRACE_FASTFLOW
 #endif
 
 #include <ff/ff.hpp>
@@ -22,61 +33,68 @@ using namespace ff;
  *   - CLOCK_MONOTONIC_RAW: 
  *      Similar to CLOCK_MONOTONIC, but provides access to a raw hardware-based 
  *      time that is not subject to frequency adjustments. 
- *      This clock does not count time that the system is suspended. */
+ *      This clock does not count time that the system is suspended.
+ *  
+ * @note This type of clock is currently a bad choice to have a clear idea of the performance. 
+ * Simply charging your laptop during the simulation may increase OR DECREASE the time registered.
+ * So better look up at something else, if you want to compare some performances based on time! */
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
+
+/** Runtime OFFSET changer. */
+#define RUNTIME_FRACTION (20)
+
+/** The minimun percentage of the period/deadline amount at which we will set the runtime to */
+#define BANDWIDTH_MIN 0.01
+
+/** Used to set a limit on how much a runtime value can grow */
+#define MAX_RUNTIME_OFFSET(x, y) (2 * (x) / (y))
+
+/** Used to set a limit on how much a runtime value can decrease */
+#define MIN_RUNTIME_OFFSET(x, y) ((x) / (y) / 2)
+
+/** Record used to save a log line in memory. Pointers will need dynamic allocation. Defined as:
+ * - timespec abs_time;
+ * - size_t * out;
+ * - size_t * runtime; */
+typedef struct _mng_record {
+    timespec abs_time;
+    size_t * out;   /* it will need dynamic allocation for # of nodes */
+    size_t * runtime;
+} mng_record;
 
 std::barrier bar{2};
 std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
 
-/** Used to wrap the setting of the sched_attr in a function, used by all elements of this test.
- * @param n_threads number of threads in the current simulation (Emitter and Collector included). 
- * @param period_deadline value to set as `period` and `deadline` of the sched attr. 
- * @note The `runtime` attribute will be derived by the other two as . */
-void set_deadline_attr(size_t n_threads, size_t period_deadline) {
-    struct sched_attr attr = {0};
-    attr.size = sizeof(struct sched_attr);
-    attr.sched_flags = 0;
-    attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_deadline = period_deadline;  // default: 1M
-    attr.sched_period   = period_deadline;  // default: 1M
-    attr.sched_runtime = (long long unsigned int)((float)period_deadline / n_threads);
-    
-    if (set_scheduling_out(&attr, ff_getThreadID()))
-        std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
-    print_thread_attributes(ff_getThreadID());
-}
 
 struct Source: ff_node_t<long> {
-    Source(const int ntasks, size_t n_threads, size_t period_deadline): ntasks(ntasks) , n_threads(n_threads), period_deadline(period_deadline) {}
+    Source(const int ntasks): ntasks(ntasks) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline);
+        // here you can set a policy
 		bar.arrive_and_wait();
 
-		// EB2MS: qui prendere il tempo iniziale
+		// Here setting the starting time
 		if (clock_gettime(CLOCK_TYPE, &start_time))
             std::cerr << "ERROR in [start] clock_gettime!" << std::endl;
 		return 0;
 	}
 	long* svc(long*) {
         for(long i = 1; i <= ntasks; ++i) {
-			ticks_wait(1000);	// in base alla macchina, può essere disattivato per tempi diversi!
+			ticks_wait(1000);	// based on the machine, it can be deactivated for different timespecs!
             ff_send_out((long*)i);
         }
         return EOS;
     }
     const int ntasks;
-    const size_t n_threads;
-    const size_t period_deadline;
 };
 
 struct Stage: ff_node_t<long> {
-	Stage(long workload, size_t n_threads, size_t period_deadline): workload(workload) , n_threads(n_threads), period_deadline(period_deadline) {}
+	Stage(long workload): workload(workload) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline);
+        // here you can set a policy
 		return 0;
 	}
 
@@ -85,15 +103,12 @@ struct Stage: ff_node_t<long> {
         return in;
     }
 	long workload;
-	const size_t n_threads;
-	const size_t period_deadline;
 };
 
 struct Sink: ff_node_t<long> {
-	Sink(size_t n_threads, size_t period_deadline): n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline);
+        // here you can set a policy
 		return 0;
 	}
 
@@ -104,7 +119,7 @@ struct Sink: ff_node_t<long> {
     }
     
 	void svc_end() {
-		// EB2MS: qui prendere il tempo finale e fare differenza con tempo iniziale
+		// Here setting the ending time
 		if (clock_gettime(CLOCK_TYPE, &end_time))
             std::cerr << "ERROR in [end] clock_gettime!" << std::endl;
 
@@ -113,8 +128,6 @@ struct Sink: ff_node_t<long> {
 	}
 
     size_t counter = 0;
-    const size_t n_threads;
-    const size_t period_deadline;
 };
 
 void manager(ff_pipeline& pipe, size_t n_threads) {
@@ -149,71 +162,73 @@ void manager(ff_pipeline& pipe, size_t n_threads) {
 
 		// just printing (for CSV) -> become memo setting
         for(size_t i = 0; i < (nodes.size() - 1); ++i)
-            buffer_log << ", " << lengths[i];
+            buffer_log << "," << lengths[i];
         buffer_log << '\n';
 	}
-    std::cout << "-----\nmanager completed:" << std::endl;
+    std::cout << "-----\nmanager completed" << std::endl;
     
     // writing on file
     std::ofstream oFile("outOLD.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << "abs_time,\t\t\trel_time";
+            oFile << "abs_time,rel_time";
             for (i = 0; i < nodes.size() - 1; ++i)
-                oFile << ",\t\t" << i;
-            oFile << std::endl;
-            oFile << buffer_log.str() << std::endl;   // writing the output on file
+                oFile << "," << i;
+            oFile << '\n' << buffer_log.str() << std::endl;   // writing the output on file
             buffer_log.clear();
+            std::cout << "- Output saved on outOLD.csv" << std::endl;
         } else {
-            fprintf(stderr, "Output file in manager gave error!");
+            fprintf(stderr, "[ERROR] Output file in manager gave error!");
         }
         oFile.close();
     }
 }
 
 int main(int argc, char* argv[]) {
-    // default arguments
+    // Default arguments
     size_t ntasks = 1000;
     size_t nnodes = 2;
-    size_t period_deadline = 1000000; // Default at 1M
   
     if (argc > 1) {
-        if (argc < 3 || argc > 4) {
-            error("use: %s ntasks nnodes (period/deadline: optional)\n", argv[0]);
+        if (argc != 3) {
+            error("use: %s ntasks nnodes\n", argv[0]);
             return -1;
         } 
         ntasks = std::stol(argv[1]);
 		nnodes = std::stol(argv[2]);
-        if (argc > 3) 
-            period_deadline = std::stol(argv[3]);
         if (nnodes > 6) nnodes = 6;
     }
 
-    Source first(ntasks, nnodes + 2, period_deadline);
-    Sink last(nnodes + 2, period_deadline);
+    // calling constructor (see test_ossched_pipe to see further implementation)
+    Source first(ntasks);
+    Sink last;
 
 	ff_pipeline pipe;
-	pipe.add_stage(&first);
+	pipe.add_stage(&first);             // add the source 
+    // adding the stages 
 	for(size_t i = 1; i <= nnodes; ++i)
-		pipe.add_stage(new Stage(2000 * i, nnodes + 2, period_deadline), true);
-	pipe.add_stage(&last);
+		pipe.add_stage(new Stage(2000 * i), true);
+	pipe.add_stage(&last);              // add the sink
 
-	// setta tutte le code a bounded di capacità 10
+	// set all queues with a bounded capacity of 10
 	// pipe.setXNodeInputQueueLength(10, true);
 	
-	// lancio il thread manager
+	// Thread manager start
 	std::thread th(manager, std::ref(pipe), nnodes + 2);
+    // NOTE: the total number of threads of the simulation is:
+    // 1 (Source) + nnodes (Stages) + 1 (Sink) + 1 (manager)
 	
-	// eseguo la pipe
+	// Pipe execution and termination
     if (pipe.run_and_wait_end() < 0) {
         error("running pipeline\n");
         return -1;
     }	
 
-	std::cout << "pipe done" << std::endl;	
-	th.join();		// it makes the main thread to wait for th termination
-	std::cout << "manager closed" << std::endl;
+	std::cout << "pipe done" << std::endl;
 
-    std::cout << "Time used: " << diff_timespec(&end_time, &start_time) << " s" << std::endl;
+	th.join();		            // It makes the main thread to wait for the manager termination
+	std::cout << "manager closed" << std::endl;
+    // Print the time difference between Source/svc_init() and Sink.svc_end() measurements
+    std::cout << "Time used: " << diff_timespec(end_time, start_time) << " s" << std::endl;
 	return 0;
 }
