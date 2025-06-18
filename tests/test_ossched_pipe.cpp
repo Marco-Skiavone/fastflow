@@ -33,6 +33,9 @@
 /** Uncomment the following macro and recompile to see how the test behaves without scheduling setting at runtime. */
 // #define NO_SCHED_SETTING 1
 
+/** Relative path where to save the .csv files in */
+const std::string REL_PATH = "../../../../PyCharmMiscProject/data/";
+
 #include <ff/ff.hpp>
 using namespace ff;
 
@@ -47,7 +50,7 @@ using namespace ff;
  * So better look up at something else, if you want to compare some performances based on time! */
 #define CLOCK_TYPE (CLOCK_MONOTONIC_RAW)
 
-/** Runtime OFFSET changer. `x` passed is the runtime value to stretch */
+/** Runtime OFFSET changer. */
 #define RUNTIME_FRACTION (20)
 
 /** The minimun percentage of the period/deadline amount at which we will set the runtime to */
@@ -78,7 +81,7 @@ struct Source: ff_node_t<long> {
     Source(const int ntasks, size_t n_threads, size_t period_deadline): ntasks(ntasks) , n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline, 0);
+		set_deadline_attr(n_threads, period_deadline, 0, 0);
 		bar.arrive_and_wait();
 
 		if (clock_gettime(CLOCK_TYPE, &start_time))
@@ -103,7 +106,7 @@ struct Stage: ff_node_t<long> {
 	Stage(long workload, size_t n_threads, size_t period_deadline): workload(workload) , n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline, 0);
+		set_deadline_attr(n_threads, period_deadline, 0, 0);
 		return 0;
 	}
 
@@ -121,7 +124,7 @@ struct Sink: ff_node_t<long> {
 	Sink(size_t n_threads, size_t period_deadline): n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
-		set_deadline_attr(n_threads, period_deadline, 0);
+		set_deadline_attr(n_threads, period_deadline, 0, 0);
 		return 0;
 	}
 
@@ -149,10 +152,10 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     size_t i, times = 0;
     struct sched_attr attr;
     struct timespec waiter;
-    waiter.tv_nsec = 1000000; waiter.tv_sec = 0;
+    waiter.tv_nsec = 10000000; waiter.tv_sec = 0;
     
     // Assigning a memory size of 20 secs of simulation (quite a LOT of time) divided by the interval
-    size_t n_memory_records = (20 / (waiter.tv_nsec / 1e9));
+    size_t n_memory_records = (120 / (waiter.tv_nsec / 1e9));
     // size_t n_memory_records = ((estimated_time(ntasks, n_threads - 2) * 1.5) / (waiter.tv_nsec / 1e9));
     const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
 
@@ -163,7 +166,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         return;
     }
     
-    for (i = 0; i < n_memory_records - 1; ++i) {
+    for (i = 0; i < n_memory_records; ++i) {
         mem_buffer[i].out = (size_t *) malloc (record_arr_size);
         mem_buffer[i].runtime = (size_t *) malloc (record_arr_size);
 
@@ -188,6 +191,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 	FFBUFFER * in_s[n_threads - 1];      // out buffers
     size_t lengths[n_threads - 1];       // lengths of out queues
     size_t rt_table[n_threads - 1];      // runtime_table, updated if set
+    size_t node_tids[n_threads - 1];      // tids of the nodes, updated if set
     long diff[n_threads - 1];            // signed
 
     // declaring runtime offset (to add or decrease) and limit bounce (max, min).
@@ -208,6 +212,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     for (i = 0; i < n_threads - 1; ++i) {
         rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
         mem_buffer[0].runtime[i] = rt_table[i];
+        node_tids[i] = nodes[i]->getOSThreadId();
     }
 
     // getting out nodes in in_s[] array
@@ -224,10 +229,18 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 
         // reading lengths
         for (i = 0; i < (n_threads - 1); ++i) {
+            if (in_s[i] == NULL) {
+                break;
+            }
             lengths[i] = in_s[i]->length();
         }
-        
-        min_diff = LONG_MAX; max_diff = -LONG_MAX; min_i = SIZE_MAX; max_i = SIZE_MAX; 
+        if (managerstop) {
+            fprintf(stderr, "Received end of simulation during control. Manager's quitting...\n");
+            break;
+        }
+
+        // getting the busiest and least busy nodes
+        min_diff = LONG_MAX; max_diff = LONG_MIN; min_i = SIZE_MAX; max_i = SIZE_MAX; 
         for (i = 1; i < n_threads - 1; ++i) {
             diff[i] = lengths[i] - lengths[i-1];
             if (diff[i] < min_diff) {
@@ -242,18 +255,23 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
 
         // We remove from the one having max difference (has done a lot) 
         // and giving to the one having the min (negative - it has greater input queue than output one)
-        if (max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
+        if (!managerstop && max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
             rt_table[max_i] -= runtime_offset;
             rt_table[min_i] += runtime_offset;
             // if NO_SCHED_SETTING is defined, the syscalls will be NOT performed.
 #ifndef NO_SCHED_SETTING
-            set_deadline_attr(n_threads, period_deadline, rt_table[max_i]);
-            set_deadline_attr(n_threads, period_deadline, rt_table[min_i]);
+            if (set_deadline_attr(n_threads, period_deadline, rt_table[max_i], node_tids[max_i])) {
+                rt_table[max_i] += runtime_offset;
+                rt_table[min_i] -= runtime_offset;
+            } else if (set_deadline_attr(n_threads, period_deadline, rt_table[min_i], node_tids[min_i]))
+                rt_table[min_i] -= runtime_offset;
 #endif
         }
 
-        for (i = 0; i < n_threads-1; ++i) {
+        // Adding data retrieved to the memory
+        for (i = 0; i < n_threads-1 && !managerstop; ++i) {
             mem_buffer[times].out[i] = lengths[i];
+            //mem_buffer[times].runtime[i] = get_sched_attributes(node_tids[i], &attr) ? rt_table[i] : attr.sched_runtime;
             mem_buffer[times].runtime[i] = rt_table[i];
         }
         ++times;
@@ -268,7 +286,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::cout << "-----\nmanager completed" << std::endl;
     
     // writing on file
-    std::ofstream oFile("outV1.csv", std::ios_base::out | std::ios_base::trunc);
+    std::ofstream oFile(REL_PATH + "outV1.2.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << "abs_time,rel_time";
@@ -287,7 +305,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
                 for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].runtime[j]; }
                 oFile << std::endl;
             }
-            std::cout << "- Output saved on outV1.csv" << std::endl;
+            std::cout << "- Output saved on outV1.2.csv" << std::endl;
         } else {
             fprintf(stderr, "[ERROR] Output file in manager gave error!");
         }
@@ -352,10 +370,10 @@ int main(int argc, char* argv[]) {
     std::cout << "Time used: " << tot_time << "s" << std::endl;
 
     // writing on a file to catch times in append, useful to make some future studies on times
-    std::ofstream oFile("timesV1.csv", std::ios_base::app);
+    std::ofstream oFile(REL_PATH + "timesV1.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
-            oFile << ntasks << "," << nnodes << "," << tot_time << std::endl;
+            oFile << ntasks << "," << nnodes << "," << period_deadline << "," << RUNTIME_FRACTION << "," << tot_time << std::endl;
             std::cout << "- Time saved on timesV1.csv" << std::endl;
         } else {
             fprintf(stderr, "[ERROR] Output file in main gave error!\n");
