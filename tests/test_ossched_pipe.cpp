@@ -197,6 +197,8 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
     const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
 
+    long min_diff = LONG_MAX;
+    size_t min_i, decr_i = 1;
 
     // <<<------- START Simulation ------->>>
 	bar.arrive_and_wait();
@@ -217,14 +219,6 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         nodes[i]->get_out_nodes(in);
         in_s[i] = in[0]->get_out_buffer();  
     }
-
-    long diff[n_threads - 1];
-    const size_t runtime_offset = period_deadline / n_threads / RUNTIME_FRACTION;
-    const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
-    const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
-
-    long min_diff = LONG_MAX;
-    size_t min_i, decr_i = 1;
 
 	while(!managerstop && times < n_memory_records) {   // and memory has space
         nanosleep(&waiter, NULL);
