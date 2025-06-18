@@ -33,6 +33,9 @@
 /** Uncomment the following macro and recompile to see how the test behaves without scheduling setting at runtime. */
 // #define NO_SCHED_SETTING 1
 
+/** Relative path where to save the .csv files in */
+const std::string REL_PATH = "../../../../PyCharmMiscProject/data/";
+
 #include <ff/ff.hpp>
 using namespace ff;
 
@@ -285,7 +288,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::cout << "-----\nmanager completed" << std::endl;
     
     // writing on file
-    std::ofstream oFile("outV1.csv", std::ios_base::out | std::ios_base::trunc);
+    std::ofstream oFile(REL_PATH + "outV1.2.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << "abs_time,rel_time";
@@ -369,7 +372,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Time used: " << tot_time << "s" << std::endl;
 
     // writing on a file to catch times in append, useful to make some future studies on times
-    std::ofstream oFile("timesV1.csv", std::ios_base::app);
+    std::ofstream oFile(REL_PATH + "timesV1.csv", std::ios_base::app);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << ntasks << "," << nnodes << "," << period_deadline << "," << RUNTIME_FRACTION << "," << tot_time << std::endl;
