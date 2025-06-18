@@ -197,8 +197,6 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     const size_t runtime_min = period_deadline * BANDWIDTH_MIN + runtime_offset;
     const size_t runtime_max = period_deadline * (1 - BANDWIDTH_MIN) - runtime_offset;
 
-    long min_diff, max_diff;
-    size_t min_i, max_i; 
 
     // <<<------- START Simulation ------->>>
 	bar.arrive_and_wait();
