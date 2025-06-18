@@ -1,3 +1,14 @@
+/* This file has been written by Marco Schiavone during an internship, supervised by the Professor Enrico Bini. */
+/** **************************************************************
+  * This file executes the "test_ossched_pipe" executable an arbitrary number of times (argv[1]),
+ * passing as parameters all nodes from 1 to 6 (inclusive) and the number of requested tasks 
+ * (default: 100,000).
+ *
+ * This code is designed to collect data on the performance of the test more efficiently.
+ * The test itself autonomously updates some files in .csv format.
+ */
+/** @author: Marco Schiavone */
+
 #include <stdio.h>
 #include <iostream>
 #include <string.h>
@@ -8,13 +19,12 @@
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        std::cerr << "launch application as \"./test_battery_launcher <ntimes> <?tasks>\"" << std::endl;
+        std::cerr << "launch application as \"./test_ossched_pipe_battery <ntimes> <?tasks>\"" << std::endl;
         return -1;
     }
     int chld = -1, status;
     int tasks_to_do = 100000;
     int times_to_cycle = 0;
-    size_t tasks = 0;
     
     if (argc > 2)   // default as 50000
         tasks_to_do = atoi(argv[2]);
@@ -51,7 +61,7 @@ int main(int argc, char *argv[]) {
     for (int nodes = 1; nodes < 7; ++nodes) {
         std::cout << "\n\n\n\n\n\n\n\n----- nodes: " << nodes << " -----\n\n\n\n\n\n\n\n";
         if (!sprintf(argv_child[2], "%d", nodes)) {
-            std::cerr << "Error in nodes sprintf()! Nodes: " << nodes << ", Tasks: " << tasks << std::endl;
+            std::cerr << "Error in nodes sprintf()! Nodes: " << nodes << std::endl;
             free(argv_child[2]);
             free(argv_child[1]);
             //free(argv_child[0]);

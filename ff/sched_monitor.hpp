@@ -125,7 +125,7 @@ int set_deadline_attr(size_t n_threads, size_t period_deadline, size_t runtime, 
     attr.sched_period   = period_deadline;
     attr.sched_runtime = (runtime != 0 ? runtime : (unsigned long)(period_deadline / n_threads));
     
-    // For the first settage of the deadline policy, you should call this function with runtime=0.
+    // For the first setting of the deadline policy, you should call this function with runtime=0.
     if (set_scheduling_out(&attr, thread_id, runtime == 0)) {
         std::cerr << "Error: " << strerror(errno) << "(" << strerrorname_np(errno) << ") - (line " <<  __LINE__ << ")" << std::endl;
         return -1;
