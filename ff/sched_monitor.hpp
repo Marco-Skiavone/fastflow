@@ -78,7 +78,10 @@ int print_thread_attributes(FILE * file_ptr, size_t thread_id) {
 }
 
 
-/** Function used to SET the attributes of the current thread, using a `sched_attr` structure. 
+/** Function used to SET the attributes of the current thread, using a `sched_attr` structure.
+ * @warning This function is called by `set_deadline_attr` and should be invoked only by a wrapper.
+ * 
+ * Pay attention, if you want to call it!
  * @param attr is a pointer to the structure of `sched_attr` type, which will contain all attributes required for the scheduling.
  * @param thread_id The TID of the calling thread. Usually stored in `ff/node.hpp`.
  * @param set_affinity true to set the affinity (first call), Otherwise false (unnecessary syscall).

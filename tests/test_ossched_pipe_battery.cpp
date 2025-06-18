@@ -41,7 +41,6 @@ int main(int argc, char *argv[]) {
         std::cerr << "Error in nodes sprintf()! argv_child[0]" << std::endl;
         free(argv_child[2]);
         free(argv_child[1]);
-        //free(argv_child[0]);
         free(argv_child);
         return -1;
     }
@@ -50,7 +49,6 @@ int main(int argc, char *argv[]) {
         std::cerr << "Error in sprintf()! argv_child[1]" << std::endl;
         free(argv_child[2]);
         free(argv_child[1]);
-        //free(argv_child[0]);
         free(argv_child);
         return -1;
     }
@@ -64,7 +62,6 @@ int main(int argc, char *argv[]) {
             std::cerr << "Error in nodes sprintf()! Nodes: " << nodes << std::endl;
             free(argv_child[2]);
             free(argv_child[1]);
-            //free(argv_child[0]);
             free(argv_child);
             return -1;
         }
@@ -78,7 +75,6 @@ int main(int argc, char *argv[]) {
                     std::cerr << "Error! Got -1 in fork! Child #" << i << std::endl;
                     free(argv_child[2]);
                     free(argv_child[1]);
-                    //free(argv_child[0]);
                     free(argv_child);
                     return -1;
                 default:
@@ -88,7 +84,6 @@ int main(int argc, char *argv[]) {
                         std::cerr << "status is " << status << std::endl;
                         free(argv_child[2]);
                         free(argv_child[1]);
-                        //free(argv_child[0]);
                         free(argv_child);
                         return -1;
                     }
@@ -98,7 +93,6 @@ int main(int argc, char *argv[]) {
     std::cout << "Test battery has finished. Exiting..." << std::endl;
     free(argv_child[2]);
     free(argv_child[1]);
-    //free(argv_child[0]);
     free(argv_child);
     return 0;
 }
