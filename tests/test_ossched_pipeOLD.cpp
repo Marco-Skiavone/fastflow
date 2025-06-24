@@ -1,11 +1,14 @@
 /* This test has been written by Marco Schiavone during an internship, supervised by the Professor Enrico Bini. */
 /** **************************************************************
- * The current test gives a starting line (thanking Massimo Torquati and Gabriele for their collaboartion)
- * from which understand the library structure. Using a pipeline, we can use the override of methods to better specify the code. 
- * Here we are making use of a 3 different structures to set a custom pipeline.
+ * The current test tries to handle the deadline scheduling policy on pipeline threads AT RUNTIME.
+ * A manager handles the runtime stages, also creating a ".csv" file at the end of the simulation. 
  * 
- *  Source ---> Stage ---> ... ---> Stage ---> Sink 
+ * We are making use of a 3 different structs to set a custom pipeline.
  * 
+ *  Source ---> Stage#1 ---> ... ---> Stage#<nnodes> ---> Sink 
+ *    ^            ^          |            ^               ^
+ *    |            |          |            |               |
+ *    +------------+------ manager --------+---------------+
  * This test is still NOT setting the deadline scheduling policy.
  * 
  * @note the `svc()` method is the one called when the simulation starts. 
@@ -14,6 +17,7 @@
 /** @author: Marco Schiavone */
 
 #include <iostream>
+#include <cmath>
 #include <string>
 #include <sstream>
 #include <thread>
@@ -25,6 +29,9 @@
     // to run this test we need to be sure that the initial barrier is executed (it should sync all the threads)
     #define FF_INITIAL_BARRIER
 #endif
+
+/** Relative path where to save the .csv files in */
+const std::string REL_PATH = "../../../../PyCharmMiscProject/data/";
 
 #include <ff/ff.hpp>
 using namespace ff;
@@ -67,12 +74,12 @@ std::atomic_bool managerstop{false};
 struct timespec start_time;
 struct timespec end_time;
 
-
 struct Source: ff_node_t<long> {
-    Source(const int ntasks): ntasks(ntasks) {}
+    Source(const int ntasks, size_t n_threads, size_t period_deadline): ntasks(ntasks) , n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
         // here you can set a policy
+        set_deadline_attr(n_threads, period_deadline, 0, 0);
 		bar.arrive_and_wait();
 
 		// Here setting the starting time
@@ -88,13 +95,17 @@ struct Source: ff_node_t<long> {
         return EOS;
     }
     const int ntasks;
+    const size_t n_threads;
+    const size_t period_deadline;
 };
 
+/** The internal node of the pipeline. This can be referred to as a "worker" by the `ff` library. */
 struct Stage: ff_node_t<long> {
-	Stage(long workload): workload(workload) {}
+	Stage(long workload, size_t n_threads, size_t period_deadline): workload(workload) , n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
         // here you can set a policy
+        set_deadline_attr(n_threads, period_deadline, 0, 0);
 		return 0;
 	}
 
@@ -103,12 +114,17 @@ struct Stage: ff_node_t<long> {
         return in;
     }
 	long workload;
+	const size_t n_threads;
+	const size_t period_deadline;
 };
 
+/** The ending point of the pipeline. It collects payloads without getting out anything. */
 struct Sink: ff_node_t<long> {
+	Sink(size_t n_threads, size_t period_deadline): n_threads(n_threads), period_deadline(period_deadline) {}
 
 	int svc_init() {
         // here you can set a policy
+		set_deadline_attr(n_threads, period_deadline, 0, 0);
 		return 0;
 	}
 
@@ -128,20 +144,70 @@ struct Sink: ff_node_t<long> {
 	}
 
     size_t counter = 0;
+    const size_t n_threads;
+    const size_t period_deadline;
 };
 
-void manager(ff_pipeline& pipe, size_t n_threads) {
-    size_t i;
-	std::stringstream buffer_log;	// Creating a string stream to prepare output
-    struct timespec ts, waiter;
-    waiter.tv_nsec = 1000000; // 1M
-    waiter.tv_sec = 0;
+void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
+    // NOTE: n_threads is (nnodes + 2)!
+    size_t i, times = 0;
+    struct sched_attr attr;
+    struct timespec waiter;
+    waiter.tv_nsec = 10000000; waiter.tv_sec = 0;
+    
+    // Assigning a memory size of 20 secs of simulation (quite a LOT of time) divided by the interval
+    size_t n_memory_records = (120 / (waiter.tv_nsec / 1e9));
+    // size_t n_memory_records = ((estimated_time(ntasks, n_threads - 2) * 1.5) / (waiter.tv_nsec / 1e9));
+    const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
+
+    mng_record * mem_buffer = (mng_record *) malloc (sizeof(mng_record) * n_memory_records);
+    if (mem_buffer == NULL) {
+        std::cerr << "Error in the MANAGER malloc(1) call!" << std::endl;
+        bar.arrive_and_wait();              // To START the simulation!
+        return;
+    }
+    
+    for (i = 0; i < n_memory_records; ++i) {
+        mem_buffer[i].out = (size_t *) malloc (record_arr_size);
+        mem_buffer[i].runtime = (size_t *) malloc (record_arr_size);
+
+        if (mem_buffer[i].out == NULL || mem_buffer[i].runtime == NULL) {
+            std::cerr << "Error in the MANAGER malloc(2) call!" << std::endl;
+            bar.arrive_and_wait();              // To START the simulation!
+    
+            if (mem_buffer != NULL) {
+                for (size_t j = 0; j < i; ++j) {
+                    if (mem_buffer[j].out != NULL)
+                        free(mem_buffer[j].out);
+                    if (mem_buffer[j].runtime != NULL)
+                        free(mem_buffer[j].runtime);
+                }
+                free(mem_buffer);
+            }
+            return;
+        }
+    }
+    
+    // n_thread == nodes.size()
+	FFBUFFER * in_s[n_threads - 1];      // out buffers
+    size_t lengths[n_threads - 1];       // lengths of out queues
+    size_t rt_table[n_threads - 1];      // runtime_table, updated if set
+    long diff[n_threads - 1];            // signed
+
+    long min_diff, max_diff;
+    size_t min_i, max_i; 
+
+    // <<<------- START Simulation ------->>>
 	bar.arrive_and_wait();
 	std::cout << "manager started" << std::endl;
     
-	const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
-    FFBUFFER * in_s[nodes.size() - 1];      // out buffers
-    size_t lengths[nodes.size() - 1];       // lengths
+    const svector<ff_node*> nodes = pipe.get_pipeline_nodes();
+
+    // getting first runtimes through system calls
+    for (i = 0; i < n_threads - 1; ++i) {
+        rt_table[i] = get_sched_attributes(nodes[i]->getOSThreadId(), &attr) ? SIZE_MAX : attr.sched_runtime;
+        mem_buffer[0].runtime[i] = rt_table[i];
+    }
 
     // getting out nodes in in_s[] array
     for (i = 0; i < (nodes.size() - 1); ++i) {
@@ -150,85 +216,151 @@ void manager(ff_pipeline& pipe, size_t n_threads) {
         in_s[i] = in[0]->get_out_buffer();  
     }
     // ^^^ we made "[0]" to retrieve 1st node in output list
-	
-	while(!managerstop) {
+
+	while(!managerstop && times < n_memory_records) {   // and memory has space
         nanosleep(&waiter, NULL);
-        clock_gettime(CLOCK_TYPE, &ts);
-        buffer_log << ts.tv_sec << '.' << ts.tv_nsec << ", " 
-            << (ts.tv_sec - start_time.tv_sec) << '.' << (ts.tv_nsec - start_time.tv_nsec);
+        clock_gettime(CLOCK_TYPE, &mem_buffer[times].abs_time);
 
-        for (i = 0; i < nodes.size() - 1; ++i)
+        // reading lengths
+        for (i = 0; i < (n_threads - 1); ++i) {
+            if (in_s[i] == NULL) {
+                break;
+            }
             lengths[i] = in_s[i]->length();
+        }
+        if (managerstop) {
+            fprintf(stderr, "Received end of simulation during control. Manager's quitting...\n");
+            break;
+        }
 
-		// just printing (for CSV) -> become memo setting
-        for(size_t i = 0; i < (nodes.size() - 1); ++i)
-            buffer_log << "," << lengths[i];
-        buffer_log << '\n';
+        // getting the busiest and least busy nodes
+        min_diff = LONG_MAX; max_diff = LONG_MIN; min_i = SIZE_MAX; max_i = SIZE_MAX; 
+        for (i = 1; i < n_threads - 1; ++i) {
+            diff[i] = lengths[i] - lengths[i-1];
+            if (diff[i] < min_diff) {
+                min_diff = diff[i];
+                min_i = i;
+            }
+            if (diff[i] > max_diff) {
+                max_diff = diff[i];
+                max_i = i;
+            }
+        }
+
+        /** ---------------------------------------------------------------
+         * Here we should change runtimes here (see test_ossched_pipe.cpp) 
+         * ---------------------------------------------------------------- */
+
+        // Adding data retrieved to the memory
+        for (i = 0; i < n_threads-1 && !managerstop; ++i) {
+            mem_buffer[times].out[i] = lengths[i];
+            mem_buffer[times].runtime[i] = rt_table[i];
+        }
+        ++times;
 	}
+
+    if (times >= n_memory_records) {
+        std::cerr << "### Warning! ### Memory ended up after " << 
+            ((mem_buffer[n_memory_records-1].abs_time.tv_sec - start_time.tv_sec) + ((mem_buffer[n_memory_records-1].abs_time.tv_nsec - start_time.tv_nsec) / 1e9))
+            << "s from the start. End of data collection." << std::endl;
+    }
+
     std::cout << "-----\nmanager completed" << std::endl;
     
     // writing on file
-    std::ofstream oFile("outOLD.csv", std::ios_base::out | std::ios_base::trunc);
+    std::ofstream oFile(REL_PATH + "outOLD.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << "abs_time,rel_time";
-            for (i = 0; i < nodes.size() - 1; ++i)
-                oFile << "," << i;
-            oFile << '\n' << buffer_log.str() << std::endl;   // writing the output on file
-            buffer_log.clear();
+            for (i = 0; i < n_threads - 1; ++i) { oFile << ",node_#" << i; }
+            for (i = 0; i < n_threads - 1; ++i) { oFile << ",runtime_#" << i; }
+            oFile << '\n';
+            
+            size_t j;
+            for (i = 0; i < times; ++i) {
+                // abs and rel times
+                oFile << (mem_buffer[i].abs_time.tv_sec + mem_buffer[i].abs_time.tv_nsec / 1e9) << "," 
+                    << ((mem_buffer[i].abs_time.tv_sec - start_time.tv_sec) + ((mem_buffer[i].abs_time.tv_nsec - start_time.tv_nsec) / 1e9));
+                // out queues
+                for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].out[j]; }
+                // runtimes
+                for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].runtime[j]; }
+                oFile << std::endl;
+            }
             std::cout << "- Output saved on outOLD.csv" << std::endl;
         } else {
             fprintf(stderr, "[ERROR] Output file in manager gave error!");
         }
         oFile.close();
     }
+    
+    // memory free
+    if (mem_buffer != NULL) {
+        for (i = 0; i < n_memory_records; ++i) {
+            if (mem_buffer[i].out != NULL)
+                free(mem_buffer[i].out);
+            if (mem_buffer[i].runtime != NULL)
+                free(mem_buffer[i].runtime);
+        }
+        free(mem_buffer);
+    }
 }
 
 int main(int argc, char* argv[]) {
     // Default arguments
     size_t ntasks = 1000;
-    size_t nnodes = 2;
-  
+    size_t nnodes = 3;
+    size_t period_deadline = 1000000; // Default at 1M
+
     if (argc > 1) {
-        if (argc != 3) {
-            error("use: %s ntasks nnodes\n", argv[0]);
+        if (argc < 3 || argc > 4) {
+            error("use: %s ntasks nnodes (period/deadline: optional)\n", argv[0]);
             return -1;
         } 
         ntasks = std::stol(argv[1]);
 		nnodes = std::stol(argv[2]);
+        if (argc > 3) 
+            period_deadline = std::stol(argv[3]);
         if (nnodes > 6) nnodes = 6;
     }
 
-    // calling constructor (see test_ossched_pipe to see further implementation)
-    Source first(ntasks);
-    Sink last;
+    Source first(ntasks, nnodes + 2, period_deadline);
+    Sink last(nnodes + 2, period_deadline);
 
 	ff_pipeline pipe;
-	pipe.add_stage(&first);             // add the source 
-    // adding the stages 
+	pipe.add_stage(&first);
 	for(size_t i = 1; i <= nnodes; ++i)
-		pipe.add_stage(new Stage(2000 * i), true);
-	pipe.add_stage(&last);              // add the sink
+		pipe.add_stage(new Stage(2000 * i, nnodes + 2, period_deadline), true);
+	pipe.add_stage(&last);
 
 	// set all queues with a bounded capacity of 10
 	// pipe.setXNodeInputQueueLength(10, true);
 	
-	// Thread manager start
-	std::thread th(manager, std::ref(pipe), nnodes + 2);
-    // NOTE: the total number of threads of the simulation is:
-    // 1 (Source) + nnodes (Stages) + 1 (Sink) + 1 (manager)
+	// Thread manager launch
+	std::thread th(manager, std::ref(pipe), nnodes + 2, period_deadline);
 	
-	// Pipe execution and termination
+	// pipe execution (and termination)
     if (pipe.run_and_wait_end() < 0) {
         error("running pipeline\n");
         return -1;
     }	
 
-	std::cout << "pipe done" << std::endl;
-
-	th.join();		            // It makes the main thread to wait for the manager termination
+	th.join();		// This makes the main thread to wait for the manager
 	std::cout << "manager closed" << std::endl;
-    // Print the time difference between Source/svc_init() and Sink.svc_end() measurements
-    std::cout << "Time used: " << diff_timespec(end_time, start_time) << " s" << std::endl;
+
+    double tot_time = diff_timespec(end_time, start_time);
+    std::cout << "Time used: " << tot_time << "s" << std::endl;
+
+    // writing on a file to catch times in append, useful to make some future studies on times
+    std::ofstream oFile(REL_PATH + "timesOLD.csv", std::ios_base::app);
+    if (oFile.is_open()) {
+        if (oFile.good()) {
+            oFile << ntasks << "," << nnodes << "," << period_deadline << "," << tot_time << std::endl;
+            std::cout << "- Time saved on timesOLD.csv" << std::endl;
+        } else {
+            fprintf(stderr, "[ERROR] Output file in main gave error!\n");
+        }
+        oFile.close();
+    }
 	return 0;
 }
