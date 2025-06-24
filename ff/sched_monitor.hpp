@@ -14,7 +14,7 @@
  * - Kernel 6.8.0-51-generic) 
  * The following include contains the sched_attr struct required for the scheduling. 
  * Credits to: https://github.com/torvalds/linux/blob/master/include/linux/sched.h 
- * UPDATE: It seems that having older version */
+ * UPDATE: Older versions may cause issues with library inclusion. */
 #include <linux/sched/types.h>
 #include <stdio.h>
 #include <errno.h>

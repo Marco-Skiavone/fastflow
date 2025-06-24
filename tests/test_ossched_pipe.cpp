@@ -256,10 +256,10 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
         // We remove from the one having max difference (has done a lot) 
         // and giving to the one having the min (negative - it has greater input queue than output one)
         if (!managerstop && max_i != min_i && max_i != SIZE_MAX && min_i != SIZE_MAX && rt_table[max_i] >= runtime_min && rt_table[min_i] <= runtime_max) {
-            rt_table[max_i] -= runtime_offset;
-            rt_table[min_i] += runtime_offset;
             // if NO_SCHED_SETTING is defined, the syscalls will be NOT performed.
 #ifndef NO_SCHED_SETTING
+            rt_table[max_i] -= runtime_offset;
+            rt_table[min_i] += runtime_offset;
             if (set_deadline_attr(n_threads, period_deadline, rt_table[max_i], node_tids[max_i])) {
                 rt_table[max_i] += runtime_offset;
                 rt_table[min_i] -= runtime_offset;
