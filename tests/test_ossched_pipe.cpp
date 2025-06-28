@@ -282,7 +282,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     std::cout << "-----\nmanager completed" << std::endl;
     
     // writing on file
-    std::ofstream oFile(REL_PATH + "outV1.2.csv", std::ios_base::out | std::ios_base::trunc);
+    std::ofstream oFile(REL_PATH + "outV3.csv", std::ios_base::out | std::ios_base::trunc);
     if (oFile.is_open()) {
         if (oFile.good()) {
             oFile << "abs_time,rel_time";
@@ -301,7 +301,7 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
                 for (j = 0; j < n_threads-1; ++j) { oFile << "," << mem_buffer[i].runtime[j]; }
                 oFile << std::endl;
             }
-            std::cout << "- Output saved on outV1.2.csv" << std::endl;
+            std::cout << "- Output saved on outV3.csv" << std::endl;
         } else {
             fprintf(stderr, "[ERROR] Output file in manager gave error!");
         }
