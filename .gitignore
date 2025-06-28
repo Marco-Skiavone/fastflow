@@ -479,6 +479,7 @@ tests/test_ossched_pipeOLD
 tests/test_ossched_farm 
 tests/test_ossched_deadline
 tests/test_battery_launcher
+tests/test_ossched_pipe_battery
 
 tests/out.txt
 tests/out*.csv

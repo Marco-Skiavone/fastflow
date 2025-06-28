@@ -238,7 +238,7 @@ protected:
 
     void thread_routine() {
         threadid = ff_getThreadID();
-        // print_thread_attributes(threadid);
+        // print_thread_attributes(stderr, threadid);
 #if defined(FF_INITIAL_BARRIER)
         if (barrier) {
             barrier->doBarrier(tid);
