@@ -38,11 +38,11 @@ These branches should eventually be merged and refactored into a strategy patter
 ---
 
 ## How to run tests
-From inside the `tests` folder, run:
+It is possible to run the `simple_start.sh` script (in the `fastflow` folder), or you can execute inside the `tests` folder:
 
 ```bash
 make test_ossched_pipe
-sudo make test_ossched_pipe <n_tasks> <n_nodes> <n_period?> 
+sudo ./test_ossched_pipe <n_tasks> <n_nodes> <n_period?> 
 ```
 
 Where:

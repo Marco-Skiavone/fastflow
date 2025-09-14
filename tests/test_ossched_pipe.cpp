@@ -34,7 +34,7 @@
 // #define NO_SCHED_SETTING 1
 
 /** Relative path where to save the .csv files in */
-const std::string REL_PATH = "../../../../PyCharmMiscProject/data/";
+const std::string REL_PATH = "./";
 
 #include <ff/ff.hpp>
 using namespace ff;
@@ -156,7 +156,6 @@ void manager(ff_pipeline& pipe, size_t n_threads, size_t period_deadline) {
     
     // Assigning a memory size of 20 secs of simulation (quite a LOT of time) divided by the interval
     size_t n_memory_records = (120 / (waiter.tv_nsec / 1e9));
-    // size_t n_memory_records = ((estimated_time(ntasks, n_threads - 2) * 1.5) / (waiter.tv_nsec / 1e9));
     const size_t record_arr_size = sizeof(size_t) * (n_threads-1);
 
     mng_record * mem_buffer = (mng_record *) malloc (sizeof(mng_record) * n_memory_records);
